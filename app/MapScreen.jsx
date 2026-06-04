@@ -250,7 +250,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
       <div ref={vpRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onMouseDown={e=>{ if(e.button===1) e.preventDefault(); }} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-        style={{ position:'relative', flex:1, overflow:'hidden', cursor, touchAction:'none' }}>
+        style={{ position:'relative', flex:1, overflow:'hidden', cursor, touchAction:'none', userSelect:'none', WebkitUserSelect:'none' }}>
 
         <div style={{ position:'absolute', left:0, top:0, width:plan.pw, height:plan.ph,
           transform:`translate(${view.tx}px,${view.ty}px) scale(${view.s})`, transformOrigin:'0 0',
