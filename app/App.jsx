@@ -120,7 +120,7 @@ function App(){
           {NAV.map(n=>{ const on=screen===n.id; return (
             <button key={n.id} onClick={()=>setScreen(n.id)} style={{ flex:1, padding:'9px 0 11px', display:'flex', flexDirection:'column',
               alignItems:'center', gap:3, color:on?'#fff':T.color.steel400, position:'relative' }}>
-              <Icon name={n.icon} size={21} stroke={on?2.2:1.8} />
+              <Icon name={n.icon} size={21} stroke={on?2.2:1.8} style={{ color:on?'#fff':T.color.steel400 }} />
               <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:11, letterSpacing:'.04em', textTransform:'uppercase' }}>{n.label}</span>
             </button>
           ); })}
@@ -169,7 +169,7 @@ function App(){
                 padding:railOpen?'10px 12px':0, borderRadius:T.radius.md,
                 color:on?'#fff':T.color.steel200, background:on?'linear-gradient(180deg,#243047,#18212e)':(railOpen?'transparent':'rgba(146,164,196,.07)'),
                 border:'1px solid '+(on?T.color.line:(railOpen?'transparent':T.color.line)), transition:'all .15s', textAlign:'left' }}>
-              <Icon name={n.icon} size={railOpen?20:22} stroke={on?2.2:1.8} />
+              <Icon name={n.icon} size={railOpen?20:22} stroke={on?2.2:1.9} style={{ color:on?'#fff':T.color.steel200 }} />
               {railOpen && <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, letterSpacing:'.04em', textTransform:'uppercase' }}>{n.label}</span>}
             </button>
           ); })}
