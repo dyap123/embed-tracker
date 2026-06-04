@@ -24,6 +24,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
+  const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, sequence:'CUP', area:'A', mark:'' });
@@ -39,7 +40,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [q, setQ] = React.useState('');
   const [full, setFull] = React.useState(false);
   const touched = React.useRef(false);
-  const clip = React.useRef(null);
+  const clip = React.useRef(null);          // copied markup
+  const clipEmbed = React.useRef(null);     // copied embed (for ⌘C/⌘V place)
   const undo = React.useRef([]);
 
   const manager = !!user.manager;
@@ -58,6 +60,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   },[box,isPhone]);
   React.useEffect(()=>{ if(!touched.current) setView({ s:1, tx:plan.ox, ty:plan.oy, init:true }); },[plan]);
   function fit(){ touched.current=false; setView({ s:1, tx:plan.ox, ty:plan.oy, init:true }); }
+  React.useEffect(()=>{ if(drawMode!=='pin') setGhost(null); },[drawMode]);   // clear cursor preview
 
   // ---- fullscreen ----
   React.useEffect(()=>{ const h=()=>setFull(!!document.fullscreenElement); document.addEventListener('fullscreenchange',h); return ()=>document.removeEventListener('fullscreenchange',h); },[]);
@@ -100,14 +103,15 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
       pushUndo({ type:'pinRemove', id:key }); return; }   // stay in placement mode
     if (drawMode==='rect'){ drawing.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy }; setDraft({ ...drawing.current }); return; }
     if (drawMode==='poly'){ setPoly(p=>[...p,[+f.fx.toFixed(4),+f.fy.toFixed(4)]]); return; }
-    // drawMode 'move' or 'off' (select tool): empty-area drag = marquee select (so you can pick multiple to move)
+    // drawMode 'off': empty-area drag = marquee select (Select tool) or pan (Pan tool); pins drag themselves
     setSelZone(null); setReshape(false);
-    if (drawMode==='off' && tool==='pan'){ touched.current=true; drag.current={ x, y, tx:view.tx, ty:view.ty }; return; }
+    if (tool==='pan'){ touched.current=true; drag.current={ x, y, tx:view.tx, ty:view.ty }; return; }
     marquee.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy, additive:e.shiftKey||e.metaKey||e.ctrlKey };
     setMarq({ x:f.fx, y:f.fy, w:0, h:0 });
   }
   function onPointerMove(e){
     const {x,y}=relXY(e); const f=toFrac(x,y);
+    if (drawMode==='pin'){ setGhost({ x:f.fx, y:f.fy }); return; }    // new embed follows the cursor
     if (pdrag.current){ const pd=pdrag.current; const dx=f.fx-pd.sf.fx, dy=f.fy-pd.sf.fy;
       const dp={}; pd.ids.forEach(id=>{ const b=pd.base[id]; if(b) dp[id]={ nx:b.nx+dx, ny:b.ny+dy }; });
       pd.moved=true; pd.last=dp; setDragPins(dp); return; }
@@ -123,7 +127,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         const prev = pd.ids.filter(id=>pd.base[id]).map(id=>({ id, x:pd.base[id].nx, y:pd.base[id].ny }));
         const next = pd.ids.filter(id=>pd.last[id]).map(id=>({ id, x:+pd.last[id].nx.toFixed(4), y:+pd.last[id].ny.toFixed(4) }));
         pushUndo({ type:'pinMove', moves:prev }); onMovePins(next);
-      } else { setSelId(pd.hitId); }       // click without drag → show its detail on the right
+      } else { setSelId(pd.hitId); setSelPins([]); }   // click without drag → select & show detail
       return; }
     if (vdrag.current){ commitLive(vdrag.current.id); vdrag.current=null; return; }
     if (sdrag.current){ commitLive(sdrag.current.id); sdrag.current=null; return; }
@@ -176,6 +180,11 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const payload=isPoly(z)?{ ...z, points:z.points.map(([x,y])=>[+(x+off).toFixed(4),+(y+off).toFixed(4)]), x:z.x+off, y:z.y+off }:{ ...z, x:(z.x||0)+off, y:(z.y||0)+off };
     const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); setSelZone(key); }
 
+  // copy a selected embed → ⌘V drops into placement mode pre-filled with its settings
+  function copyEmbed(id){ const em=embeds.find(x=>x.id===id); if(em) clipEmbed.current={ mark:em.mark, knifePlate:!!em.hasKnife, sequence:em.sequence, area:em.area }; }
+  function pasteEmbed(){ const c=clipEmbed.current; if(!c) return;
+    setPlace({ mark:c.mark||'', knifePlate:!!c.knifePlate, sequence:c.sequence||'CUP', area:c.area||'A' }); setDrawMode('pin'); }
+
   function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
   function deletePins(ids){ ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(e) pushUndo({ type:'pinRestore', id, data:rawPin(e) }); onRemovePin(id); }); setSelPins([]); setSelId(null); }
   function requestDeletePins(ids){ if(!ids.length) return;
@@ -189,8 +198,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
       const meta=e.metaKey||e.ctrlKey;
       if (meta && /^[zZ]$/.test(e.key)){ e.preventDefault(); doUndo(); }                         // undo (anyone)
       else if (meta && /^[aA]$/.test(e.key)){ e.preventDefault(); setSelPins(visible.map(em=>em.id)); setSelId(null); }
-      else if (meta && manager && /^[cC]$/.test(e.key)){ if(selZone){ e.preventDefault(); copyZone(selZone); } }
-      else if (meta && manager && /^[vV]$/.test(e.key)){ e.preventDefault(); pasteZone(); }
+      else if (meta && /^[cC]$/.test(e.key)){ if(selId){ e.preventDefault(); copyEmbed(selId); } else if(manager && selZone){ e.preventDefault(); copyZone(selZone); } }
+      else if (meta && /^[vV]$/.test(e.key)){ if(clipEmbed.current){ e.preventDefault(); pasteEmbed(); } else if(manager){ e.preventDefault(); pasteZone(); } }
       else if (manager && (e.key==='Delete'||e.key==='Backspace')){
         if(selPins.length){ e.preventDefault(); requestDeletePins(selPins); }
         else if(selZone){ e.preventDefault(); deleteZone(selZone); } }
@@ -198,7 +207,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
       else if (manager && e.key==='Enter'){ if(drawMode==='poly'&&poly.length>=3){ e.preventDefault(); finishPoly(); } }
     }
     window.addEventListener('keydown', onKey); return ()=>window.removeEventListener('keydown', onKey);
-  },[manager, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
+  },[manager, selId, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
   function visibleKey(){ return embeds.length+'/'+filter+'/'+cat+'/'+seq+'/'+q; }
 
   // ---- derived ----
@@ -231,7 +240,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   const uPerPx = 1/((plan.pw||1)*view.s);
   const swU = 2.2*uPerPx, handleU = 7*uPerPx;
-  const cursor = drawMode==='move' ? 'grab' : drawMode!=='off' ? 'crosshair' : (tool==='pan' ? (drag.current?'grabbing':'grab') : 'crosshair');
+  const cursor = drawMode!=='off' ? 'crosshair' : (tool==='pan' ? (drag.current?'grabbing':'grab') : 'crosshair');
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
@@ -296,22 +305,18 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {visible.map(e=>{
             const st=pinState(e,seq); const col=STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
             const dp = dragPins && dragPins[e.id]; const moving = !!dp; const px = moving?dp.nx:e.nx, py = moving?dp.ny:e.ny;
-            const moveMode = drawMode==='move';
+            const draggable = drawMode==='off';                          // click a pin → drag to move; click without moving → select
             return (
               <div key={e.id} data-pin
-                onPointerDown={moveMode ? (ev)=>{ if(ev.button!==0) return; ev.stopPropagation();
+                onPointerDown={draggable ? (ev)=>{ if(ev.button!==0) return; ev.stopPropagation();
                   if(ev.metaKey||ev.ctrlKey||ev.shiftKey){ setSelPins(p=> p.includes(e.id)? p.filter(x=>x!==e.id) : [...p,e.id]); setSelId(null); return; }  // shift/⌘-click builds a group
                   try{vpRef.current.setPointerCapture(ev.pointerId);}catch(_){}
                   const r=relXY(ev); const sf=toFrac(r.x,r.y);
                   const ids = (pickSet.has(e.id) && selPins.length>0) ? selPins.slice() : [e.id];   // drag the whole selection if grabbed pin is in it
                   const base={}; ids.forEach(id=>{ const em=embeds.find(x=>x.id===id); if(em) base[id]={ nx:em.nx, ny:em.ny }; });
                   pdrag.current={ ids, base, sf, hitId:e.id, moved:false, last:null }; } : undefined}
-                onClick={ev=>{ ev.stopPropagation();
-                  if(moveMode) return;                                  // move mode: handled on pointer up
-                  if(ev.metaKey||ev.ctrlKey||ev.shiftKey){ setSelPins(p=> p.includes(e.id)? p.filter(x=>x!==e.id) : [...p,e.id]); setSelId(null); }
-                  else { setSelId(e.id); setSelPins([]); } }}
                 style={{ position:'absolute', left:px*100+'%', top:py*100+'%', width:0, height:0, zIndex:(on||picked||moving)?5:1,
-                  cursor: moveMode?(moving?'grabbing':'grab'):'pointer' }}>
+                  cursor: draggable?(moving?'grabbing':'grab'):'pointer' }}>
                 <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, cursor:'pointer' }}>
                   <span style={{ position:'relative', width:on?16:12, height:on?16:12, borderRadius:'50%', background:col,
                     border:'2px solid '+(on?'#fff':'rgba(8,11,16,.85)'),
@@ -328,6 +333,18 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               </div>
             );
           })}
+
+          {/* ghost preview — new embed following the cursor while placing */}
+          {drawMode==='pin' && ghost && (
+            <div style={{ position:'absolute', left:ghost.x*100+'%', top:ghost.y*100+'%', width:0, height:0, pointerEvents:'none', zIndex:6 }}>
+              <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:.75 }}>
+                <span style={{ position:'relative', width:13, height:13, borderRadius:'50%', background:T.color.amberHot, border:'2px dashed #fff', boxShadow:'0 0 10px rgba(166,160,255,.7)' }}>
+                  {place.knifePlate && <span style={{ position:'absolute', top:-5, left:-5, width:7, height:7, background:T.color.blue, border:'1.5px solid #0C111A', transform:'rotate(45deg)' }} />}
+                </span>
+                <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:'#fff', background:'rgba(8,11,16,.8)', padding:'1px 4px', borderRadius:3, whiteSpace:'nowrap' }}>{place.mark||'NEW'}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* sticky grid ruler — keeps column/row labels at the screen edges when zoomed in */}
@@ -353,16 +370,6 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
             <Field label="Sequence"><Segmented value={place.sequence} onChange={v=>setPlace(p=>({...p,sequence:v}))} options={SEQUENCES} /></Field>
             <Field label="Area"><Segmented value={place.area} onChange={v=>setPlace(p=>({...p,area:v}))} options={AREAS} /></Field>
             <Btn kind="primary" icon="check" style={{ marginTop:'auto' }} onClick={()=>setDrawMode('off')}>Done</Btn>
-          </div>
-        )}
-
-        {/* move-mode banner */}
-        {drawMode==='move' && (
-          <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:10,
-            background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.amberHot, borderRadius:T.radius.pill, padding:'7px 8px 7px 14px', boxShadow:T.shadow.card }}>
-            <Icon name="drag" size={15} style={{ color:T.color.amberHot }} />
-            <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13 }}>Move mode — drag any pin to reposition</span>
-            <Btn size="sm" kind="primary" icon="check" onClick={()=>setDrawMode('off')}>Done</Btn>
           </div>
         )}
 
@@ -392,7 +399,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
           background:'rgba(8,11,16,.6)', padding:'4px 9px', borderRadius:6, border:'1px solid '+T.color.line }}>
-          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='move'?' · DRAG A PIN TO MOVE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER':(tool==='select'?' · DRAG TO SELECT':' · DRAG TO PAN')}
+          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER':(tool==='select'?' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT':' · DRAG TO PAN')}
         </div>
 
         {sel && <PinDetail key={sel.id} embed={sel} seq={seq} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
@@ -463,12 +470,8 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
       <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
         {manager && drawMode==='poly' && poly.length>=3 && <Btn size="sm" kind="primary" icon="check" onClick={finishPoly}>Finish</Btn>}
         {manager && (drawMode==='rect'||drawMode==='poly') && <Btn size="sm" kind="ghost" icon="close" onClick={cancel}>Cancel</Btn>}
-        {drawMode==='move' && <Btn size="sm" kind="primary" icon="check" onClick={()=>setDrawMode('off')}>Done moving</Btn>}
-        {/* Add embed / Move — open to everyone on the roster (permissions come later) */}
-        {drawMode==='off' && <>
-          <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>
-          <Btn size="sm" kind="ghost" icon="drag" onClick={()=>setDrawMode('move')}>Move</Btn>
-        </>}
+        {/* Add embed — open to everyone on the roster (permissions come later) */}
+        {drawMode==='off' && <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>}
         {manager && drawMode==='off' && <>
           <Btn size="sm" kind="ghost" icon="zone" onClick={()=>setDrawMode('rect')}>Box</Btn>
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>

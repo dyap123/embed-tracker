@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>EmbedYap — Embed Install Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -73,8 +76,8 @@
   /* cache-busting loader — appends a per-load version so edited .jsx always reload */
   (function(){
     var v = Date.now();
-    var files = ['tokens','icons','data','ui','exports','blueprint','SignIn','MapScreen',
-                 'MapDetail','Dashboard','Inventory','Game','GameDraw','Crew','Profile','App','main'];
+    var files = ['tokens','iconset','data','ui','exports','blueprint','SignIn','MapScreen',
+                 'MapDetail','Dashboard','Inventory','Game','GameDraw','Crew','Profile','App','iconset','main'];
     files.forEach(function(f){
       document.write('<script type="text/babel" src="app/'+f+'.jsx?v='+v+'"><\/script>');
     });

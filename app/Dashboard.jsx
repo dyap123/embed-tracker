@@ -68,6 +68,12 @@ function Dashboard({ embeds, isPhone }){
             <SeqBars data={bySeq} />
           </Card>
         </div>
+
+        {/* anchor bolts × sequence matrix */}
+        <Card pad={0} glow style={{ marginTop:14, overflow:'hidden' }}>
+          <div style={{ padding:'16px 20px 0' }}><ChartHead title="Anchor bolts by sequence" note="count per mark · installed / total" /></div>
+          <SeqMatrix embeds={embeds} isPhone={isPhone} />
+        </Card>
       </div>
 
       {toast && (
@@ -164,6 +170,38 @@ function BarRow({ label, value, max, color }){
       <div style={{ height:10, borderRadius:6, background:'rgba(0,0,0,.32)', overflow:'hidden', border:'1px solid '+T.color.line }}>
         <div style={{ width:pct+'%', height:'100%', background:`linear-gradient(90deg,${color}cc,${color})`, borderRadius:6,
           transition:'width .9s cubic-bezier(.2,.8,.2,1)', boxShadow:`0 0 12px -2px ${color}` }} />
+      </div>
+    </div>
+  );
+}
+
+/* anchor-bolt mark × sequence count matrix (installed / total per cell) */
+function SeqMatrix({ embeds, isPhone }){
+  const { seqs, marks, seqTotals } = embedsBySequence(embeds);
+  const cols = `120px repeat(${seqs.length}, 1fr) 64px`;
+  const cell = { textAlign:'center', fontFamily:T.font.mono, fontSize:12.5, padding:'8px 4px' };
+  const head = { ...cell, fontSize:10.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 };
+  if(!marks.length) return <div style={{ padding:'18px 20px', color:T.color.steel400, fontFamily:T.font.mono, fontSize:12.5 }}>No embeds yet.</div>;
+  return (
+    <div style={{ marginTop:12, maxHeight:340, overflow:'auto' }}>
+      <div style={{ display:'grid', gridTemplateColumns:cols, alignItems:'center', borderBottom:'1px solid '+T.color.line, position:'sticky', top:0, background:steelPlate('#161D29','#10151E'), zIndex:1 }}>
+        <span style={{ ...head, textAlign:'left', paddingLeft:20 }}>Mark</span>
+        {seqs.map(s=><span key={s} style={head}>{s==='CUP'?'CUP':'Seq '+s}</span>)}
+        <span style={{ ...head, paddingRight:16 }}>Total</span>
+      </div>
+      {marks.map((m,i)=>(
+        <div key={m.mark} style={{ display:'grid', gridTemplateColumns:cols, alignItems:'center', borderBottom: i<marks.length-1?'1px solid '+T.color.lineSoft:'none' }}>
+          <span style={{ ...cell, textAlign:'left', paddingLeft:20, color:T.color.amberHot, fontWeight:700 }}>{m.mark}</span>
+          {seqs.map(s=>{ const c=m.seq[s]||{pinned:0,inst:0}; const done=c.pinned>0&&c.inst===c.pinned;
+            return <span key={s} style={{ ...cell, color: c.pinned?(done?T.color.green:'#fff'):T.color.steel600 }}>
+              {c.pinned? <span>{c.inst}<span style={{ color:T.color.steel400 }}>/{c.pinned}</span></span> : '·'}</span>; })}
+          <span style={{ ...cell, paddingRight:16, fontWeight:700 }}>{m.inst}<span style={{ color:T.color.steel400 }}>/{m.total}</span></span>
+        </div>
+      ))}
+      <div style={{ display:'grid', gridTemplateColumns:cols, alignItems:'center', borderTop:'1px solid '+T.color.line, background:'rgba(30,58,107,.14)' }}>
+        <span style={{ ...cell, textAlign:'left', paddingLeft:20, fontWeight:700, textTransform:'uppercase', fontSize:11 }}>Total</span>
+        {seqs.map(s=><span key={s} style={{ ...cell, fontWeight:700 }}>{seqTotals[s].inst}<span style={{ color:T.color.steel400 }}>/{seqTotals[s].pinned}</span></span>)}
+        <span style={{ ...cell, paddingRight:16, fontWeight:700 }}>{marks.reduce((a,m)=>a+m.inst,0)}<span style={{ color:T.color.steel400 }}>/{marks.reduce((a,m)=>a+m.total,0)}</span></span>
       </div>
     </div>
   );

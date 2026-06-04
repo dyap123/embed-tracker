@@ -161,18 +161,21 @@ function App(){
         <div style={{ position:'relative', zIndex:1, height:1, background:T.color.line, margin:railOpen?'16px 2px 14px':'16px 12px 14px' }} />
 
         {/* nav — labeled rows when open, centered icon tiles when collapsed */}
-        <nav style={{ display:'flex', flexDirection:'column', gap:6, position:'relative', zIndex:1 }}>
-          {NAV.map(n=>{ const on=screen===n.id; return (
-            <button key={n.id} onClick={()=>setScreen(n.id)} title={n.label}
-              style={{ display:'flex', alignItems:'center', justifyContent:railOpen?'flex-start':'center', gap:12,
-                width:railOpen?'auto':46, height:railOpen?'auto':46, margin:railOpen?0:'0 auto',
-                padding:railOpen?'10px 12px':0, borderRadius:T.radius.md,
-                color:on?'#fff':T.color.steel200, background:on?'linear-gradient(180deg,#243047,#18212e)':(railOpen?'transparent':'rgba(146,164,196,.07)'),
-                border:'1px solid '+(on?T.color.line:(railOpen?'transparent':T.color.line)), transition:'all .15s', textAlign:'left' }}>
-              <Icon name={n.icon} size={railOpen?20:22} stroke={on?2.2:1.9} style={{ color:on?'#fff':T.color.steel200 }} />
-              {railOpen && <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, letterSpacing:'.04em', textTransform:'uppercase' }}>{n.label}</span>}
-            </button>
-          ); })}
+        <nav style={{ display:'flex', flexDirection:'column', gap:6, position:'relative', zIndex:1, alignItems:railOpen?'stretch':'center' }}>
+          {NAV.map(n=>{ const on=screen===n.id;
+            const base = { borderRadius:T.radius.md, color:on?'#fff':'#D6DDEC',
+              background:on?'linear-gradient(180deg,#2B3A52,#18212e)':(railOpen?'transparent':'rgba(146,164,196,.10)'),
+              border:'1px solid '+(on?T.color.line:(railOpen?'transparent':T.color.line)), transition:'all .15s' };
+            const style = railOpen
+              ? { ...base, display:'flex', alignItems:'center', gap:12, padding:'10px 12px', textAlign:'left' }
+              : { ...base, display:'grid', placeItems:'center', width:46, height:46 };
+            return (
+              <button key={n.id} onClick={()=>setScreen(n.id)} title={n.label} style={style}>
+                <Icon name={n.icon} size={railOpen?20:23} stroke={on?2.4:2.2} style={{ color:on?'#fff':'#D6DDEC' }} />
+                {railOpen && <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, letterSpacing:'.04em', textTransform:'uppercase' }}>{n.label}</span>}
+              </button>
+            );
+          })}
         </nav>
 
         {/* user chip + sign out */}

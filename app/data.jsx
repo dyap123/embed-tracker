@@ -189,6 +189,24 @@ function remarkFor(kind){ const a = REMARKS[kind] || REMARKS.edit; return a[Math
 
 Object.assign(window, { pinToEmbed, gridIdx, remarkFor, REMARKS });
 
+/* ---- per-mark × per-sequence breakdown (anchor bolts in each sequence) ---- */
+function embedsBySequence(embeds){
+  const seqs = SEQUENCES;                       // ['CUP','1','2','3','4']
+  const byMark = {};
+  embeds.forEach(e=>{
+    const m = byMark[e.mark] || (byMark[e.mark] = { mark:e.mark, desc:e.typeLabel, total:0, inst:0, seq:{} });
+    seqs.forEach(s=>{ if(!m.seq[s]) m.seq[s]={ pinned:0, inst:0 }; });
+    if(!m.seq[e.sequence]) m.seq[e.sequence]={ pinned:0, inst:0 };
+    m.seq[e.sequence].pinned++; m.total++;
+    if(e.installed){ m.seq[e.sequence].inst++; m.inst++; }
+  });
+  const marks = Object.values(byMark).sort((a,b)=> String(a.mark).localeCompare(String(b.mark), undefined, {numeric:true}));
+  const seqTotals = {}; seqs.forEach(s=> seqTotals[s]={ pinned:0, inst:0 });
+  marks.forEach(m=> seqs.forEach(s=>{ const c=m.seq[s]||{pinned:0,inst:0}; seqTotals[s].pinned+=c.pinned; seqTotals[s].inst+=c.inst; }));
+  return { seqs, marks, seqTotals };
+}
+window.embedsBySequence = embedsBySequence;
+
 // installed-over-time series (cumulative) for the dashboard chart
 function installSeries(embeds){
   const counts = {};

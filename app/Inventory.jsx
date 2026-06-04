@@ -14,11 +14,15 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
     .sort((a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true}));
   const num = (r)=>({ qty: r.qty!=null?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0 });
   const tot = rows.reduce((a,r)=>{ const n=num(r); return { qty:a.qty+n.qty, pinned:a.pinned+n.pinned, inst:a.inst+n.inst }; }, {qty:0,pinned:0,inst:0});
-  function expInv(kind){ const data = rows.map(r=>{ const n=num(r); return {
-      id:r.id, desc:r.desc, seq:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
+  // per-mark × sequence breakdown
+  const SEQS = window.SEQUENCES || ['CUP','1','2','3','4'];
+  const seqInfo = {}; window.embedsBySequence(embeds).marks.forEach(m=> seqInfo[m.mark]=m);
+  function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id];
+    const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
+    return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
-      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier }; });
-    window.exportInventory(data, kind); }
+      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq }; });
+    window.exportInventory(data, kind, SEQS); }
 
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
@@ -74,7 +78,7 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
                   </div>
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
-                {isOpen && <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} />}
+                {isOpen && <><SeqBreakdown info={seqInfo[r.id]} seqs={SEQS} /><TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} /></>}
               </div>
             );
           })}
@@ -86,6 +90,25 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
             {!isPhone && <><Num v={Math.max(0,tot.qty-tot.inst)} suffix=" left" /><span/></>}
           </div>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+/* per-mark sequence breakdown — installed / pinned per sequence */
+function SeqBreakdown({ info, seqs }){
+  return (
+    <div style={{ padding:'12px 20px 0' }}>
+      <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>By sequence · installed / placed</span>
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:8 }}>
+        {seqs.map(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; const done=c.pinned>0&&c.inst===c.pinned;
+          return (
+            <div key={s} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 11px', borderRadius:T.radius.pill,
+              background: c.pinned?'rgba(126,120,240,.12)':'rgba(0,0,0,.2)', border:'1px solid '+(c.pinned?'rgba(126,120,240,.4)':T.color.line) }}>
+              <span style={{ fontFamily:T.font.mono, fontSize:10.5, letterSpacing:'.08em', color:T.color.steel300 }}>{s==='CUP'?'CUP':'SEQ '+s}</span>
+              <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13, color: c.pinned?(done?T.color.green:'#fff'):T.color.steel600 }}>{c.inst}/{c.pinned}</span>
+            </div>
+          ); })}
       </div>
     </div>
   );
