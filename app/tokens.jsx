@@ -27,7 +27,8 @@ const T = {
     // pin / state colors (cool jewel tones)
     green:      '#2FD6A6',   // installed  (mint)
     red:        '#F0556B',   // to install (coral)
-    yellow:     '#C45CCB',   // next sequence (magenta)
+    yellow:     '#F5C24B',   // current sequence (gold-yellow)
+    pink:       '#FF6FB5',   // next pour (pink)
     blue:       '#4FA3F2',   // has knife plate (cyan-blue)
     // primary accent — periwinkle/indigo (futuristic). action / brand.
     amber:      '#7E78F0',
@@ -72,10 +73,11 @@ const navyPlate = 'linear-gradient(150deg, #2A3A6B 0%, #1A2547 55%, #11182F 100%
 const accentPlate = 'linear-gradient(135deg, #8E88FF 0%, #6E68E6 60%, #5A54D6 100%)';
 
 const STATE = {
-  installed: { key:'installed', label:'Installed',     color:T.color.green,  dot:T.color.green },
-  todo:      { key:'todo',      label:'To install',    color:T.color.red,    dot:T.color.red },
-  next:      { key:'next',      label:'Next sequence', color:T.color.yellow, dot:T.color.yellow },
-  knife:     { key:'knife',     label:'Knife plate',   color:T.color.blue,   dot:T.color.blue },
+  installed: { key:'installed', label:'Installed',        color:T.color.green,  dot:T.color.green },
+  todo:      { key:'todo',      label:'To install',       color:T.color.red,    dot:T.color.red },
+  current:   { key:'current',   label:'Current sequence', color:T.color.yellow, dot:T.color.yellow },
+  next:      { key:'next',      label:'Next pour',        color:T.color.pink,   dot:T.color.pink },
+  knife:     { key:'knife',     label:'Knife plate',      color:T.color.blue,   dot:T.color.blue },
 };
 
 Object.assign(window, { T, TEX, steelPlate, navyPlate, accentPlate, STATE });

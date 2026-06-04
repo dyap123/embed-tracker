@@ -2,7 +2,7 @@
    marquee multi-select, pin detail + RFI, manager markup tools (rect + polygon,
    reshape, copy/paste/delete/undo), interactive embed placement, grid editor. */
 
-const STATE_ORDER = ['installed','todo','next'];   // knife plate is an attribute, not a status
+const STATE_ORDER = ['installed','current','next','todo'];   // knife plate is an attribute, not a status
 
 /* ---- geometry helpers ---- */
 function normZone(d){ const x=Math.min(d.x0,d.x1), y=Math.min(d.y0,d.y1); return { x, y, w:Math.abs(d.x1-d.x0), h:Math.abs(d.y1-d.y0) }; }
@@ -19,7 +19,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [view, setView] = React.useState({ s:1, tx:0, ty:0, init:false });
   const [selId, setSelId] = React.useState(null);
   const [selPins, setSelPins] = React.useState([]);       // multi-selected embed ids
-  const [seq, setSeq] = React.useState('2');
+  const [seq, setSeq] = React.useState('2');               // current sequence (yellow)
   const [filter, setFilter] = React.useState('all');      // status filter
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'pan'
@@ -205,9 +205,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   function commitZone(z){
     const pts = z.points ? z.points : rectToPoly(z);
     const ids = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts)).map(e=>e.id);
-    bulkUpdate(ids, { area:z.area, sequence:z.pour, pour:`${z.area}·P${z.pour}`, ...(z.done?{ installed:true }:{}) });
+    const patch = {};
+    if (z.assign){ patch.area=z.area; patch.sequence=z.pour; patch.pour=`${z.area}·${z.pour==='CUP'?'CUP':'P'+z.pour}`; }  // only if asked
+    patch.nextPour = !!z.nextPour;                         // tag / untag everything inside as the next pour
+    if (z.done) patch.installed = true;
+    bulkUpdate(ids, patch);
     const bb = bboxOf(pts);
-    const payload = { ...bb, area:z.area, pour:z.pour, count:ids.length, done:!!z.done, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
+    const payload = { ...bb, area:z.area, pour:z.pour, count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
   }
@@ -234,7 +238,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
             {renderZones.map(z=>{
-              const pts=zonePts(z); const gc=z.done?'47,214,166':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
+              const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
                   <polygon data-zone points={dpts} fill={`rgba(${gc},${z.done?0.20:0.12})`}
@@ -265,11 +269,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </svg>
 
           {/* zone labels */}
-          {renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z; const gc=z.done?'47,214,166':(z.color||'126,120,240'); return (
+          {renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+            const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240');
+            const lbl=z.done?'POUR DONE':z.nextPour?'NEXT POUR':`${z.area}·P${z.pour}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
               <span style={{ position:'absolute', top:0, left:0, transform:`scale(${1/view.s})`, transformOrigin:'0 0',
-                background:z.done?T.color.green:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
-                padding:'2px 6px', borderRadius:'4px 0 4px 0', whiteSpace:'nowrap' }}>{z.area}·P{z.pour} · {z.count||0}{z.done?' ✓':''}</span>
+                background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
+                padding:'2px 6px', borderRadius:'4px 0 4px 0', whiteSpace:'nowrap' }}>{lbl} · {z.count||0}{z.done?' ✓':''}</span>
             </div>
           ); })}
 
@@ -298,6 +304,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
             );
           })}
         </div>
+
+        {/* sticky grid ruler — keeps column/row labels at the screen edges when zoomed in */}
+        <GridRuler view={view} plan={plan} box={box} />
 
         {/* interactive embed-placement panel — docked right so the map stays visible */}
         {drawMode==='pin' && (
@@ -394,14 +403,14 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
       {/* select / pan tool */}
       <Segmented size="sm" value={tool} onChange={setTool} options={[{value:'select',label:'Select'},{value:'pan',label:'Pan'}]} />
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        {!isPhone && <Kicker>Sequence</Kicker>}
+        {!isPhone && <Kicker style={{ color:T.color.yellow }}>Current seq</Kicker>}
         <Segmented size="sm" value={seq} onChange={setSeq} options={SEQUENCES.map(s=>({value:s,label:s}))} />
       </div>
       {!isPhone && (
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <Kicker>Show</Kicker>
           <Segmented size="sm" value={filter} onChange={setFilter}
-            options={[{value:'all',label:'All'},{value:'todo',label:'To do'},{value:'installed',label:'Done'},{value:'next',label:'Next'}]} />
+            options={[{value:'all',label:'All'},{value:'todo',label:'To do'},{value:'installed',label:'Done'},{value:'current',label:'Current'},{value:'next',label:'Next pour'}]} />
         </div>
       )}
       {!isPhone && (
@@ -563,5 +572,31 @@ function GridEditor({ grid, onClose, onSave }){
   );
 }
 const miniBtn = { width:26, height:24, display:'grid', placeItems:'center', borderRadius:6, color:T.color.steel200, border:'1px solid '+T.color.line, background:'rgba(0,0,0,.25)' };
+
+/* ---- sticky grid ruler: projects the current grid lines onto the viewport edges ---- */
+function GridRuler({ view, plan, box }){
+  if (!view || view.s < 1.2) return null;                 // only when zoomed in
+  const C=gridCols(), R=gridRows(); const cols=[], rows=[];
+  for(let i=0;i<C.length;i++){ const x=view.tx + colX(i)*plan.pw*view.s; if(x>=26 && x<=box.w-6) cols.push([x, C[i]]); }
+  for(let i=0;i<R.length;i++){ const y=view.ty + rowY(i)*plan.ph*view.s; if(y>=22 && y<=box.h-6) rows.push([y, R[i]]); }
+  const chip = { position:'absolute', fontFamily:T.font.mono, fontSize:10.5, fontWeight:600, color:'#cdd6e6',
+    background:'rgba(8,11,16,.82)', border:'1px solid '+T.color.line, borderRadius:4, padding:'1px 5px', whiteSpace:'nowrap' };
+  const tick = 'rgba(150,170,205,.35)';
+  return (
+    <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:9 }}>
+      {/* faint edge gutters so the labels read as a ruler */}
+      <div style={{ position:'absolute', top:0, left:0, right:0, height:24, background:'linear-gradient(180deg,rgba(8,11,16,.55),transparent)' }} />
+      <div style={{ position:'absolute', top:0, bottom:0, left:0, width:26, background:'linear-gradient(90deg,rgba(8,11,16,.55),transparent)' }} />
+      {cols.map(([x,l],k)=>(<React.Fragment key={'c'+k}>
+        <div style={{ position:'absolute', left:x, top:0, width:1, height:7, background:tick }} />
+        <div style={{ ...chip, left:x, top:8, transform:'translateX(-50%)' }}>{l}</div>
+      </React.Fragment>))}
+      {rows.map(([y,l],k)=>(<React.Fragment key={'r'+k}>
+        <div style={{ position:'absolute', left:0, top:y, height:1, width:7, background:tick }} />
+        <div style={{ ...chip, left:8, top:y, transform:'translateY(-50%)' }}>{l}</div>
+      </React.Fragment>))}
+    </div>
+  );
+}
 
 window.MapScreen = MapScreen;

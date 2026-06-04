@@ -1,5 +1,5 @@
-/* EmbedYap — Sign in (crew roster + manager PIN, industrial badge-in) */
-function SignIn({ onSignIn, crew }){
+/* EmbedYap — Sign in: full-screen immersive "badge-in" terminal */
+function SignIn({ onSignIn, crew, embeds=[] }){
   const ROSTER = (crew && crew.length) ? crew : (window.CREW || CREW);
   const [sel, setSel] = React.useState(null);
   const [pin, setPin] = React.useState('');
@@ -14,78 +14,110 @@ function SignIn({ onSignIn, crew }){
   }
   React.useEffect(()=>{ setPin(''); setErr(false); }, [sel]);
 
-  return (
-    <div style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:'minmax(0,1fr)', overflow:'auto',
-      background:'radial-gradient(120% 90% at 20% 0%, #16223A 0%, #0C111A 60%)' }}>
-      <div style={{ position:'absolute', inset:0, backgroundImage:TEX.grain, opacity:.06, mixBlendMode:'overlay', pointerEvents:'none' }} />
-      <div className="ey-signin" style={{ display:'grid', gridTemplateColumns:'minmax(300px,440px) minmax(0,1fr)', minHeight:'100%' }}>
+  const k = kpis(embeds);
+  const nextCount = embeds.filter(e=>e.nextPour).length;
+  const ticker = [
+    { dot:T.color.green, label:`${k.pct}% installed` },
+    { dot:T.color.blue,  label:`${k.pinned} pinned` },
+    { dot:T.color.pink,  label:`${nextCount} next pour` },
+    { dot:T.color.red,   label:`${k.openRFI} open RFIs` },
+  ];
 
-        {/* brand / badge panel */}
-        <div style={{ background:navyPlate, borderRight:'1px solid '+T.color.line, padding:'48px 44px',
-          display:'flex', flexDirection:'column', justifyContent:'space-between', position:'relative', overflow:'hidden' }}>
-          <div style={{ position:'absolute', inset:0, backgroundImage:TEX.brushed, opacity:.5, pointerEvents:'none' }} />
-          <div style={{ position:'relative' }}>
-            <Logo />
-            <div style={{ marginTop:36, maxWidth:330 }}>
-              <Kicker style={{ color:'rgba(180,200,235,.7)' }}>LA Convention Center · Foundations</Kicker>
-              <h1 style={{ fontFamily:T.font.display, fontWeight:800, fontSize:46, lineHeight:1.0, margin:'14px 0 0',
-                letterSpacing:'-.01em', color:'#fff', textTransform:'uppercase' }}>Badge in<br/>to the field.</h1>
-              <p style={{ color:'rgba(220,230,245,.66)', fontSize:15, lineHeight:1.55, marginTop:16 }}>
-                Track every embed — anchor rods, knife plates, posts, couplers, stub columns — from pour to install. Tap your name to start your shift.
-              </p>
-            </div>
+  return (
+    <div style={{ position:'absolute', inset:0, overflow:'auto', background:'radial-gradient(130% 100% at 50% -10%, #1A2740 0%, #0B0F18 55%, #070A11 100%)' }}>
+      {/* drifting blueprint grid */}
+      <div style={{ position:'absolute', inset:0, pointerEvents:'none', opacity:.55,
+        backgroundImage:'repeating-linear-gradient(0deg, transparent 0 45px, rgba(120,150,210,.08) 45px 46px), repeating-linear-gradient(90deg, transparent 0 45px, rgba(120,150,210,.08) 45px 46px)',
+        animation:'eyDrift 26s linear infinite' }} />
+      {/* scattered pulsing pins */}
+      {[['12%','22%',T.color.green,0],['82%','18%',T.color.pink,.6],['68%','72%',T.color.blue,1.2],['22%','78%',T.color.yellow,1.8],['46%','34%',T.color.red,2.4],['90%','58%',T.color.green,3]].map(([l,t,c,d],i)=>(
+        <span key={i} style={{ position:'absolute', left:l, top:t, width:9, height:9, borderRadius:'50%', background:c,
+          boxShadow:`0 0 12px 2px ${c}`, opacity:.0, animation:`eyPulse 4s ${d}s ease-in-out infinite`, pointerEvents:'none' }} />
+      ))}
+      {/* vignette + corner brackets */}
+      <div style={{ position:'absolute', inset:0, pointerEvents:'none', boxShadow:'inset 0 0 220px 40px rgba(0,0,0,.6)' }} />
+      {['tl','tr','bl','br'].map(p=>{
+        const b='2px solid rgba(166,160,255,.35)'; const s={ position:'absolute', width:26, height:26, pointerEvents:'none' };
+        const m={ tl:{top:18,left:18,borderTop:b,borderLeft:b}, tr:{top:18,right:18,borderTop:b,borderRight:b},
+          bl:{bottom:18,left:18,borderBottom:b,borderLeft:b}, br:{bottom:18,right:18,borderBottom:b,borderRight:b} }[p];
+        return <div key={p} style={{ ...s, ...m }} />;
+      })}
+
+      {/* top status strip */}
+      <div style={{ position:'absolute', top:0, left:0, right:0, display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'14px 40px', fontFamily:T.font.mono, fontSize:11, letterSpacing:'.14em', color:'rgba(180,200,235,.6)', pointerEvents:'none' }}>
+        <span>LA CONVENTION CENTER · FOUNDATIONS</span>
+        <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ width:7, height:7, borderRadius:'50%', background:T.color.green, boxShadow:`0 0 8px ${T.color.green}`, animation:'eyPulse 2.4s ease-in-out infinite' }} />
+          SYSTEM ONLINE · EMB-1.0.0
+        </span>
+      </div>
+
+      {/* center stack */}
+      <div style={{ position:'relative', minHeight:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:22, padding:'72px 20px 48px' }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14, animation:'eyRise .5s cubic-bezier(.2,.8,.2,1) both' }}>
+          <LogoMark size={64} />
+          <div style={{ fontFamily:T.font.display, fontWeight:800, fontSize:42, letterSpacing:'.02em', textTransform:'uppercase', color:'#fff', lineHeight:1 }}>
+            Embed<span style={{ color:T.color.amberHot }}>Yap</span>
           </div>
-          <div style={{ position:'relative', display:'flex', gap:22, color:'rgba(180,200,235,.7)', fontFamily:T.font.mono, fontSize:12, letterSpacing:'.06em' }}>
-            <span>SHIFT · DAY</span><span>·</span><span>CREW 10</span><span>·</span><span>v0.9</span>
-          </div>
+          <div style={{ fontFamily:T.font.mono, fontSize:12, letterSpacing:'.22em', textTransform:'uppercase', color:'rgba(180,200,235,.55)' }}>Embed install tracker</div>
         </div>
 
-        {/* roster */}
-        <div style={{ padding:'48px clamp(20px,4vw,56px)', position:'relative' }}>
-          <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', flexWrap:'wrap', gap:10 }}>
-            <h2 style={{ fontFamily:T.font.display, fontWeight:700, fontSize:26, margin:0, textTransform:'uppercase', letterSpacing:'.02em' }}>Crew roster</h2>
-            <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel400, letterSpacing:'.1em' }}>TAP YOUR NAME</span>
+        {/* live stat ticker */}
+        <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:10, animation:'eyRise .5s .05s cubic-bezier(.2,.8,.2,1) both' }}>
+          {ticker.map((s,i)=>(
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 14px', borderRadius:T.radius.pill,
+              background:'rgba(10,16,28,.55)', border:'1px solid rgba(146,164,196,.16)', fontFamily:T.font.mono, fontSize:12.5, color:'#dbe3f2' }}>
+              <span style={{ width:8, height:8, borderRadius:'50%', background:s.dot, boxShadow:`0 0 8px ${s.dot}` }} />{s.label}
+            </div>
+          ))}
+        </div>
+
+        {/* badge-in card */}
+        <div style={{ width:'min(620px,100%)', marginTop:8, background:'linear-gradient(180deg, rgba(22,30,45,.9), rgba(12,17,26,.92))',
+          border:'1px solid rgba(146,164,196,.18)', borderRadius:T.radius.xl, boxShadow:T.shadow.panel, overflow:'hidden',
+          backdropFilter:'blur(8px)', animation:'eyRise .5s .1s cubic-bezier(.2,.8,.2,1) both' }}>
+          <div style={{ padding:'16px 22px', borderBottom:'1px solid '+T.color.line, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.05em' }}>Badge in</span>
+            <span style={{ fontFamily:T.font.mono, fontSize:11, letterSpacing:'.12em', color:T.color.steel400 }}>TAP YOUR NAME · CREW {ROSTER.length}</span>
           </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(208px,1fr))', gap:12, marginTop:24 }}>
+          {/* avatar roster */}
+          <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:18, padding:'24px 22px' }}>
             {ROSTER.map(c=>{
-              const on = c.id===sel;
+              const on=c.id===sel;
               return (
-                <button key={c.id} onClick={()=>setSel(c.id)} style={{
-                  display:'flex', alignItems:'center', gap:13, textAlign:'left',
-                  background: on?'linear-gradient(180deg,#243047,#19212e)':'rgba(146,164,196,.045)',
-                  border:'1px solid '+(on?'rgba(126,120,240,.6)':T.color.line),
-                  borderRadius:T.radius.lg, padding:'13px 15px', transition:'all .15s',
-                  boxShadow: on?'0 10px 30px -14px rgba(126,120,240,.6)':'none' }}>
-                  <span style={{ width:44, height:44, borderRadius:10, flex:'0 0 auto',
-                    background: on?T.color.amber:steelPlate('#26313F','#1A2230'),
-                    color: on?'#fff':T.color.offwhite, display:'grid', placeItems:'center',
-                    fontFamily:T.font.display, fontWeight:800, fontSize:18, border:'1px solid '+T.color.line }}>{c.initials}</span>
-                  <span style={{ minWidth:0, flex:'1 1 auto', display:'flex', flexDirection:'column', gap:2 }}>
-                    <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:17, letterSpacing:'.01em', lineHeight:1.15, whiteSpace:'nowrap' }}>{c.name}</div>
-                    <div style={{ fontSize:12, color:T.color.steel300, display:'flex', alignItems:'center', gap:6 }}>
-                      {c.role}{c.manager && <Badge color={T.color.amber} style={{ padding:'1px 5px', fontSize:9.5 }}>PIN</Badge>}
-                    </div>
+                <button key={c.id} onClick={()=>setSel(c.id)} title={c.name} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8, width:88, transition:'transform .15s', transform:on?'translateY(-2px)':'none' }}>
+                  <span style={{ position:'relative', width:60, height:60, borderRadius:'50%', display:'grid', placeItems:'center',
+                    background: on?accentPlate:steelPlate('#26313F','#1A2230'), color:'#fff',
+                    fontFamily:T.font.display, fontWeight:800, fontSize:c.avatarEmoji?28:22,
+                    border:'2px solid '+(on?'#fff':'rgba(146,164,196,.25)'),
+                    boxShadow: on?`0 0 0 4px rgba(126,120,240,.35), 0 10px 26px -10px rgba(126,120,240,.8)`:'0 6px 18px -10px rgba(0,0,0,.8)' }}>
+                    {c.avatarEmoji||c.initials}
+                    {c.manager && <span title="Manager · PIN" style={{ position:'absolute', bottom:-2, right:-2, width:19, height:19, borderRadius:'50%',
+                      background:T.color.amber, border:'2px solid #11161f', display:'grid', placeItems:'center' }}><Icon name="lock" size={9} style={{ color:'#0A0B16' }} /></span>}
+                  </span>
+                  <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:12.5, color:on?'#fff':T.color.steel300, textAlign:'center', lineHeight:1.15, whiteSpace:'nowrap' }}>
+                    {c.name.split(' ')[0]}{c.goat?' 🐐':''}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          {/* badge-in dock */}
-          <div style={{ marginTop:28, display:'flex', alignItems:'center', gap:16, flexWrap:'wrap',
-            background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:16 }}>
-            <div style={{ flex:'1 1 200px', minWidth:0 }}>
-              <Kicker>{user? (needPin?'Manager PIN required':'Ready') : 'Select a crew member'}</Kicker>
-              <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, marginTop:4, color: user?'#fff':T.color.steel400 }}>
-                {user? user.name : '—'}
-              </div>
+          {/* dock: selected + PIN + badge-in */}
+          <div style={{ borderTop:'1px solid '+T.color.line, background:'rgba(0,0,0,.22)', padding:'16px 22px',
+            display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+            <div style={{ flex:'1 1 160px', minWidth:0 }}>
+              <Kicker>{user? (needPin?'Manager PIN required':'Ready to badge in') : 'Select a crew member'}</Kicker>
+              <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, marginTop:4, color:user?'#fff':T.color.steel400, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user? user.name : '—'}</div>
+              {user && <div style={{ fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400, marginTop:1 }}>{user.role}</div>}
             </div>
             {needPin && (
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                 <Icon name="lock" size={17} style={{ color:err?T.color.red:T.color.steel300 }} />
                 <input value={pin} onChange={e=>{ setErr(false); setPin(e.target.value.replace(/\D/g,'').slice(0,6)); }}
-                  inputMode="numeric" placeholder="••••••" maxLength={6}
+                  inputMode="numeric" placeholder="••••••" maxLength={6} autoFocus
                   onKeyDown={e=>e.key==='Enter'&&badgeIn()}
                   style={{ ...inputStyle, width:150, fontFamily:T.font.mono, fontSize:22, letterSpacing:'.28em', textAlign:'center',
                     padding:'9px 12px', borderColor: err?T.color.red:T.color.line }} />
@@ -94,11 +126,16 @@ function SignIn({ onSignIn, crew }){
             <Btn kind="primary" size="lg" icon="power" disabled={!user} onClick={badgeIn}
               style={{ opacity:user?1:.5, cursor:user?'pointer':'not-allowed' }}>Badge in</Btn>
           </div>
-          {err && <div style={{ color:T.color.red, fontSize:13, marginTop:10, fontFamily:T.font.mono }}>✕ Wrong PIN — managers use 050103.</div>}
-          {needPin && !err && <div style={{ color:T.color.steel400, fontSize:12, marginTop:10, fontFamily:T.font.mono }}>Manager PIN · 050103</div>}
+          {err && <div style={{ color:T.color.red, fontSize:13, padding:'0 22px 14px', fontFamily:T.font.mono }}>✕ Wrong PIN — managers use 050103.</div>}
+          {needPin && !err && <div style={{ color:T.color.steel400, fontSize:12, padding:'0 22px 14px', fontFamily:T.font.mono }}>Manager PIN · 050103</div>}
         </div>
       </div>
-      <style>{`@media (max-width:820px){ .ey-signin{ grid-template-columns:minmax(0,1fr) !important; } }`}</style>
+
+      <style>{`
+        @keyframes eyDrift { to { background-position: 46px 46px, 46px 46px; } }
+        @keyframes eyPulse { 0%,100%{ opacity:.15; transform:scale(.8);} 50%{ opacity:.9; transform:scale(1.15);} }
+        @keyframes eyRise { from{ opacity:0; transform:translateY(14px);} to{ opacity:1; transform:translateY(0);} }
+      `}</style>
     </div>
   );
 }

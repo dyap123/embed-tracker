@@ -25,6 +25,7 @@ function App(){
   const [grid, setGrid] = React.useState(null);        // Firebase editable grid config
   const [toast, setToast] = React.useState(null);
   const [railOpen, setRailOpen] = React.useState(true);
+  const [profileOpen, setProfileOpen] = React.useState(false);
   const userRef = React.useRef(user); userRef.current = user;
 
   // ---- live Firebase subscriptions + one-time crew seed ----
@@ -37,6 +38,8 @@ function App(){
       const arr = Object.values(v||{}).filter(Boolean);
       setCrew(arr.length?arr:CREW);
       window.CREW = arr.length?arr:CREW;                 // SignIn/Crew read window.CREW
+      // keep the signed-in user synced with Firebase (profile edits, points…)
+      setUser(u=>{ if(!u) return u; const live=arr.find(c=>c.id===u.id); return live?{...u,...live}:u; });
     });
     window.fb.get('users').then(v=>{ if(!v||!Object.keys(v).length){ CREW.forEach(c=>window.fb.set('users/'+c.id,{...c,updates:0})); } });
   },[]);
@@ -80,9 +83,13 @@ function App(){
   function restoreZone(id, z){ const {id:_drop, ...rest}=z||{}; window.fb.set('zones/'+id, rest); }   // for undo
 
   function signIn(u){ setUser(u); try{ sessionStorage.setItem('embedyap_user', JSON.stringify(u)); }catch(e){} }
+  function saveProfile(patch){ if(!userRef.current) return; const id=userRef.current.id;
+    window.fb.update('users/'+id, patch);
+    setUser(u=>{ const nu={...u,...patch}; try{ sessionStorage.setItem('embedyap_user', JSON.stringify(nu)); }catch(e){} return nu; });
+    flash(remarkFor('edit')); }
   function signOut(){ setUser(null); sessionStorage.removeItem('embedyap_user'); setScreen('map'); }
 
-  if(!user) return <><SignIn onSignIn={signIn} crew={crew} />{toast&&<RemarkToast msg={toast} />}</>;
+  if(!user) return <><SignIn onSignIn={signIn} crew={crew} embeds={embeds} />{toast&&<RemarkToast msg={toast} />}</>;
 
   const screenEl = {
     map: <MapScreen embeds={embeds} updateEmbed={updateEmbed} bulkUpdate={bulkUpdate} user={user} isPhone={isPhone}
@@ -106,7 +113,7 @@ function App(){
   if(isPhone){
     return (
       <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-        <PhoneHeader user={user} screen={screen} onSignOut={signOut} />
+        <PhoneHeader user={user} screen={screen} onSignOut={signOut} onProfile={()=>setProfileOpen(true)} />
         <div style={{ position:'relative', flex:1, minHeight:0 }}>{screenEl}</div>
         <div style={{ display:'flex', borderTop:'1px solid '+T.color.line, background:steelPlate('#141A24','#0C111A') }}>
           {NAV.map(n=>{ const on=screen===n.id; return (
@@ -118,6 +125,7 @@ function App(){
           ); })}
         </div>
         {toast && <RemarkToast msg={toast} />}
+        {profileOpen && <Profile user={user} onClose={()=>setProfileOpen(false)} onSave={saveProfile} />}
       </div>
     );
   }
@@ -170,11 +178,11 @@ function App(){
         <div style={{ marginTop:'auto', position:'relative', zIndex:1, display:'flex', alignItems:'center',
           gap:10, padding:railOpen?'12px 8px 2px':'12px 0 2px', justifyContent:railOpen?'flex-start':'center',
           borderTop:'1px solid '+T.color.line, marginInline:railOpen?0:10 }}>
-          <span style={{ width:34, height:34, borderRadius:9, flex:'0 0 auto', background:user.manager?accentPlate:steelPlate('#26313F','#1A2230'),
-            color:'#fff', display:'grid', placeItems:'center', fontFamily:T.font.display, fontWeight:700, fontSize:13, border:'1px solid '+T.color.line }}>{user.initials}</span>
+          <button onClick={()=>setProfileOpen(true)} title="Edit profile" style={{ width:34, height:34, borderRadius:9, flex:'0 0 auto', background:user.manager?accentPlate:steelPlate('#26313F','#1A2230'),
+            color:'#fff', display:'grid', placeItems:'center', fontFamily:T.font.display, fontWeight:700, fontSize:user.avatarEmoji?17:13, border:'1px solid '+T.color.line, cursor:'pointer' }}>{user.avatarEmoji||user.initials}</button>
           {railOpen && <>
-            <div style={{ minWidth:0, flex:1 }}>
-              <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, lineHeight:1.1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user.name}</div>
+            <div onClick={()=>setProfileOpen(true)} style={{ minWidth:0, flex:1, cursor:'pointer' }}>
+              <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, lineHeight:1.1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user.name}{user.emojis&&user.emojis.length?' '+user.emojis.slice(0,3).join(''):''}</div>
               <div style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user.manager?'MANAGER':user.role}</div>
             </div>
             <button onClick={signOut} title="Sign out" style={{ width:30, height:30, borderRadius:8, flex:'0 0 auto', display:'grid', placeItems:'center', color:T.color.steel400, border:'1px solid '+T.color.line, background:'rgba(0,0,0,.2)' }}><Icon name="power" size={16} /></button>
@@ -187,17 +195,19 @@ function App(){
 
       {/* main — full height, no top bar */}
       <div style={{ flex:1, minWidth:0, position:'relative' }}>{screenEl}</div>
+      {profileOpen && <Profile user={user} onClose={()=>setProfileOpen(false)} onSave={saveProfile} />}
     </div>
   );
 }
 
-function PhoneHeader({ user, screen, onSignOut }){
+function PhoneHeader({ user, screen, onSignOut, onProfile }){
   return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'11px 16px',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#10151E','#0B0F16'), zIndex:7 }}>
       <span style={{ fontFamily:T.font.display, fontWeight:800, fontSize:19, textTransform:'uppercase' }}>Embed<span style={{ color:T.color.amberHot }}>Yap</span></span>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>{user.initials}</span>
+        <button onClick={onProfile} title="Edit profile" style={{ width:30, height:30, borderRadius:8, background:user.manager?accentPlate:steelPlate('#26313F','#1A2230'),
+          color:'#fff', display:'grid', placeItems:'center', fontFamily:T.font.display, fontWeight:700, fontSize:user.avatarEmoji?15:12, border:'1px solid '+T.color.line }}>{user.avatarEmoji||user.initials}</button>
         <button onClick={onSignOut} style={{ color:T.color.steel400 }}><Icon name="power" size={18} /></button>
       </div>
     </div>

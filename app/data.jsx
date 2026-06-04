@@ -134,7 +134,8 @@ const INVENTORY = buildInventory();
 // ---- derived helpers ----------------------------------------------------
 function pinState(e, currentSeq){
   if (e.installed) return 'installed';
-  if (currentSeq && e.sequence === currentSeq) return 'next';
+  if (e.nextPour) return 'next';                                  // pink — tagged as next pour (via a zone)
+  if (currentSeq && e.sequence === currentSeq) return 'current';  // yellow — current sequence
   return 'todo';                                  // knife plate is an attribute (e.hasKnife), not a status
 }
 function kpis(embeds){
@@ -171,7 +172,7 @@ function pinToEmbed(key, p){
     id: key, mark: p.embedId || '—', type: tp.key, typeLabel: tp.label, code: tp.code,
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
     sequence: seq, area, pour: p.pour || `${area}·${seq==='CUP'?'CUP':'P'+seq}`,
-    installed: !!p.installed, hasKnife: knife, installedAt: at, rfi: p.rfi || null,
+    installed: !!p.installed, hasKnife: knife, nextPour: !!p.nextPour, installedAt: at, rfi: p.rfi || null,
   };
 }
 

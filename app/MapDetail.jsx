@@ -165,40 +165,59 @@ function Celebrate(){
 
 const ZONE_COLORS = [['126,120,240','Indigo'],['79,163,242','Blue'],['196,92,203','Magenta'],['242,176,76','Amber'],['240,85,107','Coral']];
 function ZoneEditor({ zone, onApply, onCancel, onDelete }){
-  const [area, setArea] = React.useState(zone.area);
-  const [pour, setPour] = React.useState(zone.pour);
+  const [area, setArea] = React.useState(zone.area || 'B');
+  const [pour, setPour] = React.useState(zone.pour || '2');
   const [done, setDone] = React.useState(!!zone.done);
+  const [nextPour, setNextPour] = React.useState(!!zone.nextPour);
+  const [assign, setAssign] = React.useState(!!zone.assign);
   const [color, setColor] = React.useState(zone.color || '126,120,240');
+
+  const Tag = ({ on, set, c, title, sub }) => (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
+      background: on?`linear-gradient(180deg,rgba(${c},.16),rgba(${c},.04))`:'rgba(0,0,0,.22)',
+      border:'1px solid '+(on?`rgba(${c},.5)`:T.color.line), borderRadius:T.radius.lg, padding:'12px 14px' }}>
+      <div onClick={()=>set(v=>!v)} style={{ cursor:'pointer', flex:1 }}>
+        <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15, textTransform:'uppercase', letterSpacing:'.03em', color:on?`rgb(${c})`:'#fff' }}>{title}</div>
+        <div style={{ fontSize:12, color:T.color.steel300, marginTop:2 }}>{sub}</div></div>
+      <Toggle on={on} onChange={()=>set(v=>!v)} />
+    </div>
+  );
+
   return (
     <div data-ui style={{ position:'absolute', inset:0, background:'rgba(6,9,14,.55)', zIndex:40, display:'grid', placeItems:'center', padding:18 }}
       onClick={onCancel}>
-      <Card onClick={e=>e.stopPropagation()} pad={22} glow style={{ width:'min(420px,100%)', boxShadow:T.shadow.panel }}>
+      <Card onClick={e=>e.stopPropagation()} pad={22} glow style={{ width:'min(420px,100%)', maxHeight:'92%', overflowY:'auto', boxShadow:T.shadow.panel }}>
         <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:4 }}>
           <Icon name="zone" size={18} style={{ color:T.color.amber }} />
           <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, textTransform:'uppercase', letterSpacing:'.03em' }}>{zone._new?'Tag zone':'Edit zone'}</span>
         </div>
-        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>Bulk-apply an area &amp; pour to every embed inside this rectangle.</p>
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <Field label="Area"><Segmented value={area} onChange={setArea} options={AREAS} /></Field>
-          <Field label="Pour / sequence"><Segmented value={pour} onChange={setPour} options={SEQUENCES} /></Field>
-          <Field label="Highlight color">
-            <div style={{ display:'flex', gap:8 }}>{ZONE_COLORS.map(([c,name])=>(
-              <button key={c} title={name} onClick={()=>setColor(c)} style={{ width:30, height:30, borderRadius:8, cursor:'pointer',
-                background:`rgba(${c},.9)`, border:'2px solid '+(color===c?'#fff':'transparent'), boxShadow:color===c?`0 0 0 2px rgba(${c},.6)`:'none' }} />
-            ))}</div>
-          </Field>
-          <div onClick={()=>setDone(d=>!d)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, cursor:'pointer',
-            background: done?'linear-gradient(180deg,rgba(47,214,166,.16),rgba(47,214,166,.04))':'rgba(0,0,0,.22)',
-            border:'1px solid '+(done?'rgba(47,214,166,.5)':T.color.line), borderRadius:T.radius.lg, padding:'12px 14px' }}>
-            <div><div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15, textTransform:'uppercase', letterSpacing:'.03em', color:done?T.color.green:'#fff' }}>Pour complete</div>
-              <div style={{ fontSize:12, color:T.color.steel300, marginTop:2 }}>Green highlight layer · marks every embed inside installed</div></div>
-            <Toggle on={done} onChange={()=>setDone(d=>!d)} />
+        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>Tag every embed inside this zone. Area &amp; sequence stay as-is unless you choose to reassign them.</p>
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <Tag on={nextPour} set={setNextPour} c="255,111,181" title="Next pour" sub="Pink layer · flags everything inside as the next pour" />
+          <Tag on={done} set={setDone} c="47,214,166" title="Pour complete" sub="Green layer · marks every embed inside installed" />
+
+          {/* optional: reassign area + sequence */}
+          <div style={{ borderTop:'1px solid '+T.color.line, paddingTop:14 }}>
+            <Tag on={assign} set={setAssign} c="126,120,240" title="Set area & sequence" sub="Only if this zone should overwrite area/pour on the embeds inside" />
+            {assign && <div style={{ display:'flex', flexDirection:'column', gap:14, marginTop:14 }}>
+              <Field label="Area"><Segmented value={area} onChange={setArea} options={AREAS} /></Field>
+              <Field label="Pour / sequence"><Segmented value={pour} onChange={setPour} options={SEQUENCES} /></Field>
+            </div>}
           </div>
+
+          {!nextPour && !done && (
+            <Field label="Highlight color">
+              <div style={{ display:'flex', gap:8 }}>{ZONE_COLORS.map(([c,name])=>(
+                <button key={c} title={name} onClick={()=>setColor(c)} style={{ width:30, height:30, borderRadius:8, cursor:'pointer',
+                  background:`rgba(${c},.9)`, border:'2px solid '+(color===c?'#fff':'transparent'), boxShadow:color===c?`0 0 0 2px rgba(${c},.6)`:'none' }} />
+              ))}</div>
+            </Field>
+          )}
         </div>
         <div style={{ display:'flex', gap:10, marginTop:22 }}>
           {onDelete && <Btn kind="danger" icon="trash" onClick={onDelete}>Delete</Btn>}
           <Btn kind="ghost" onClick={onCancel} style={{ marginLeft:onDelete?0:'auto' }}>Cancel</Btn>
-          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, done, color })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
+          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, done, nextPour, assign, color })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
         </div>
       </Card>
     </div>
