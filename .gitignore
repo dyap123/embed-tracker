@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+# Unused large binaries (app renders a drawn SVG blueprint, not these)
+assets/maps/*.png
+
+# Node (only used for local babel transpile checks)
+node_modules/

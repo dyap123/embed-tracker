@@ -1,0 +1,193 @@
+/* EmbedYap — Dashboard: KPIs, installed-over-time, by-area, by-sequence, next pour, exports */
+function Dashboard({ embeds, isPhone }){
+  const k = kpis(embeds);
+  const series = installSeries(embeds);
+  const [toast, setToast] = React.useState(null);
+  function exp(kind){ const f = window.exportEmbeds(embeds, kind==='Excel'?'xlsx':'pdf'); if(f){ setToast(f); setTimeout(()=>setToast(null), 2600); } }
+
+  const byArea = AREAS.map(a=>{ const list=embeds.filter(e=>e.area===a); return { a, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
+  const bySeq = SEQUENCES.map(s=>{ const list=embeds.filter(e=>e.sequence===s); return { s, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
+  const pours = POURS.map(p=>({ ...p, embeds: embeds.filter(e=>e.area===p.area && e.sequence===p.seq && !e.installed).length }));
+
+  return (
+    <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
+      <div className="ey-fade" style={{ maxWidth:1180, margin:'0 auto', padding:isPhone?'18px 14px 90px':'28px 30px 60px' }}>
+        <Header title="Dashboard" sub="Embed install — live status">
+          <Btn kind="ghost" size="sm" icon="export" onClick={()=>exp('Excel')}>Excel</Btn>
+          <Btn kind="navy" size="sm" icon="export" onClick={()=>exp('PDF')}>PDF</Btn>
+        </Header>
+
+        {/* KPI tiles */}
+        <div style={{ display:'grid', gridTemplateColumns:`repeat(${isPhone?2:5},1fr)`, gap:12, marginTop:18 }}>
+          <Kpi label="Expected" value={k.expected} sub="design count" />
+          <Kpi label="Pinned" value={k.pinned} sub="placed on plan" accent={T.color.blue} />
+          <Kpi label="Installed" value={k.installed} sub="cast & set" accent={T.color.green} />
+          <Kpi label="Complete" value={k.pct+'%'} sub="of pinned" accent={T.color.amber} ring={k.pct} />
+          <Kpi label="Open RFIs" value={k.openRFI} sub="needs answer" accent={T.color.red} />
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns: isPhone?'1fr':'1.6fr 1fr', gap:14, marginTop:14 }}>
+          <Card pad={20} glow>
+            <ChartHead title="Installed over time" note={`${series.length} pour days · cumulative`} />
+            <AreaChart series={series} total={k.pinned} />
+          </Card>
+          <Card pad={20} glow>
+            <ChartHead title="Next pour" note="upcoming windows" />
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:12 }}>
+              {pours.map((p,i)=>(
+                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 13px', borderRadius:T.radius.md,
+                  background: i===0?'linear-gradient(180deg,rgba(255,138,40,.12),rgba(255,138,40,.03))':'rgba(0,0,0,.2)',
+                  border:'1px solid '+(i===0?'rgba(255,138,40,.35)':T.color.line) }}>
+                  <div style={{ textAlign:'center', minWidth:42 }}>
+                    <div style={{ fontFamily:T.font.display, fontWeight:800, fontSize:22, lineHeight:1, color: i===0?T.color.amberHot:'#fff' }}>{p.date.slice(8)}</div>
+                    <div style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>JUN</div>
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5 }}>{p.label}</div>
+                    <div style={{ fontSize:12, color:T.color.steel300 }}>{p.embeds} embeds to set</div>
+                  </div>
+                  {i===0 && <Badge color={T.color.amber} fill>Next</Badge>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns: isPhone?'1fr':'1fr 1fr', gap:14, marginTop:14 }}>
+          <Card pad={20} glow>
+            <ChartHead title="Install by area" note="installed / pinned" />
+            <div style={{ display:'flex', flexDirection:'column', gap:13, marginTop:14 }}>
+              {byArea.map(r=>(
+                <BarRow key={r.a} label={'Area '+r.a} value={r.installed} max={r.pinned}
+                  color={['#2FD6A6','#4FA3F2','#C45CCB','#F0556B'][AREAS.indexOf(r.a)]} />
+              ))}
+            </div>
+          </Card>
+          <Card pad={20} glow>
+            <ChartHead title="Install by sequence" note="installed vs remaining" />
+            <SeqBars data={bySeq} />
+          </Card>
+        </div>
+      </div>
+
+      {toast && (
+        <div style={{ position:'fixed', bottom:isPhone?80:24, left:'50%', transform:'translateX(-50%)', zIndex:60,
+          background:steelPlate('#1B2433','#0E141D'), border:'1px solid rgba(47,214,166,.4)', borderRadius:T.radius.md,
+          padding:'12px 18px', display:'flex', alignItems:'center', gap:10, boxShadow:T.shadow.panel, animation:'panelInUp .3s both' }}>
+          <Icon name="check" size={16} style={{ color:T.color.green }} />
+          <span style={{ fontFamily:T.font.body, fontSize:14 }}>Exported <b>{toast}</b></span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Header({ title, sub, children }){
+  return (
+    <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+      <div>
+        <Kicker>{sub}</Kicker>
+        <h1 style={{ fontFamily:T.font.display, fontWeight:800, fontSize:34, margin:'6px 0 0', textTransform:'uppercase', letterSpacing:'.01em' }}>{title}</h1>
+      </div>
+      <div style={{ display:'flex', gap:8 }}>{children}</div>
+    </div>
+  );
+}
+function ChartHead({ title, note }){
+  return (
+    <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:8 }}>
+      <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:17, textTransform:'uppercase', letterSpacing:'.03em' }}>{title}</span>
+      <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400, letterSpacing:'.06em' }}>{note}</span>
+    </div>
+  );
+}
+
+function Kpi({ label, value, sub, accent=T.color.steel200, ring }){
+  return (
+    <Card pad={16} style={{ overflow:'hidden' }}>
+      <div style={{ position:'absolute', top:-10, right:-10, width:60, height:60, borderRadius:'50%',
+        background:`radial-gradient(circle, ${accent}22, transparent 70%)` }} />
+      <Kicker>{label}</Kicker>
+      <div style={{ display:'flex', alignItems:'flex-end', gap:8, marginTop:8 }}>
+        <span style={{ fontFamily:T.font.display, fontWeight:800, fontSize:38, lineHeight:.9, color:accent==='#9DAAC0'?'#fff':accent }}>{value}</span>
+      </div>
+      <div style={{ fontSize:11.5, color:T.color.steel400, marginTop:6, fontFamily:T.font.mono, letterSpacing:'.04em' }}>{sub}</div>
+      {ring!=null && (
+        <div style={{ position:'absolute', bottom:14, right:14 }}>
+          <Ring pct={ring} color={accent} />
+        </div>
+      )}
+    </Card>
+  );
+}
+function Ring({ pct, color, size=34 }){
+  const r=(size-5)/2, c=2*Math.PI*r;
+  return (
+    <svg width={size} height={size} style={{ transform:'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(150,170,205,.18)" strokeWidth="4" />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
+        strokeDasharray={c} strokeDashoffset={c*(1-pct/100)} style={{ transition:'stroke-dashoffset 1s ease' }} />
+    </svg>
+  );
+}
+
+function AreaChart({ series, total }){
+  const W=560,H=180,pad=8; const max=series[series.length-1]?.cum||1;
+  const xs=series.map((_,i)=> pad + (W-2*pad)*(i/Math.max(1,series.length-1)));
+  const ys=series.map(d=> H-pad - (H-2*pad)*(d.cum/max));
+  const path = xs.map((x,i)=>`${i?'L':'M'}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(' ');
+  const area = `${path} L${xs[xs.length-1]} ${H-pad} L${xs[0]} ${H-pad} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'auto', marginTop:10, display:'block' }}>
+      <defs>
+        <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#2FD6A6" stopOpacity=".42" /><stop offset="100%" stopColor="#2FD6A6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0,.25,.5,.75,1].map(g=>(<line key={g} x1={pad} x2={W-pad} y1={pad+(H-2*pad)*g} y2={pad+(H-2*pad)*g} stroke="rgba(150,170,205,.1)" strokeWidth="1" />))}
+      <path d={area} fill="url(#ag)" />
+      <path d={path} fill="none" stroke="#2FD6A6" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+      {xs.map((x,i)=> i%4===0 || i===xs.length-1 ? <circle key={i} cx={x} cy={ys[i]} r="3" fill="#0C111A" stroke="#2FD6A6" strokeWidth="2" />:null)}
+      <text x={pad} y={pad+10} fill={T.color.steel400} fontSize="11" fontFamily="'JetBrains Mono',monospace">{max} installed</text>
+    </svg>
+  );
+}
+
+function BarRow({ label, value, max, color }){
+  const pct = max? Math.round(value/max*100):0;
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:6 }}>
+        <span style={{ fontFamily:T.font.display, fontWeight:600, letterSpacing:'.02em' }}>{label}</span>
+        <span style={{ fontFamily:T.font.mono, color:T.color.steel300, fontSize:12 }}>{value}<span style={{ color:T.color.steel400 }}>/{max} · {pct}%</span></span>
+      </div>
+      <div style={{ height:10, borderRadius:6, background:'rgba(0,0,0,.32)', overflow:'hidden', border:'1px solid '+T.color.line }}>
+        <div style={{ width:pct+'%', height:'100%', background:`linear-gradient(90deg,${color}cc,${color})`, borderRadius:6,
+          transition:'width .9s cubic-bezier(.2,.8,.2,1)', boxShadow:`0 0 12px -2px ${color}` }} />
+      </div>
+    </div>
+  );
+}
+
+function SeqBars({ data }){
+  const max = Math.max(...data.map(d=>d.pinned),1);
+  return (
+    <div style={{ display:'flex', alignItems:'flex-end', gap:14, height:172, marginTop:14, padding:'0 4px' }}>
+      {data.map(d=>(
+        <div key={d.s} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:8, height:'100%' }}>
+          <div style={{ flex:1, width:'100%', maxWidth:54, display:'flex', flexDirection:'column', justifyContent:'flex-end', position:'relative' }}>
+            <div title={`${d.pinned} pinned`} style={{ height:(d.pinned/max*100)+'%', minHeight:4, background:'rgba(79,163,242,.18)',
+              border:'1px solid rgba(79,163,242,.35)', borderRadius:'6px 6px 0 0', position:'relative', transformOrigin:'bottom', animation:'growBar .8s ease both' }}>
+              <div style={{ position:'absolute', bottom:0, left:0, right:0, height:(d.installed/d.pinned*100||0)+'%',
+                background:'linear-gradient(180deg,#2FD6A6,#1f9e7e)', borderRadius:'0 0 0 0', boxShadow:'0 0 14px -2px #2FD6A6' }} />
+              <span style={{ position:'absolute', top:-20, left:0, right:0, textAlign:'center', fontFamily:T.font.mono, fontSize:11, color:'#fff' }}>{d.installed}</span>
+            </div>
+          </div>
+          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:14, color:T.color.steel200 }}>{d.s}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+Object.assign(window, { Dashboard, Header, Kpi });

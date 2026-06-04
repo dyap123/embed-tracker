@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>EmbedYap — Embed Install Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    background:#0C0F14;
+    color:#E9EEF5;
+    font-family:'Archivo',system-ui,sans-serif;
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+  #root{height:100vh;width:100vw}
+  ::selection{background:rgba(126,120,240,.32)}
+  /* thin scrollbars */
+  *::-webkit-scrollbar{width:9px;height:9px}
+  *::-webkit-scrollbar-track{background:transparent}
+  *::-webkit-scrollbar-thumb{background:rgba(120,140,170,.28);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+  *::-webkit-scrollbar-thumb:hover{background:rgba(120,140,170,.45);background-clip:padding-box}
+  input,button,select,textarea{font-family:inherit}
+  button{cursor:pointer;border:none;background:none;color:inherit}
+  @keyframes spark { 0%{transform:scale(0) rotate(0deg);opacity:1} 100%{transform:scale(1.6) rotate(120deg);opacity:0} }
+  @keyframes stampIn { 0%{transform:scale(2.4) rotate(-14deg);opacity:0} 55%{transform:scale(.86) rotate(-14deg);opacity:1} 100%{transform:scale(1) rotate(-14deg);opacity:1} }
+  @keyframes pinPulse { 0%{box-shadow:0 0 0 0 rgba(47,214,166,.55)} 70%{box-shadow:0 0 0 9px rgba(47,214,166,0)} 100%{box-shadow:0 0 0 0 rgba(47,214,166,0)} }
+  @keyframes panelIn { from{transform:translateX(18px);opacity:0} to{transform:translateX(0);opacity:1} }
+  @keyframes panelInUp { from{transform:translateY(22px);opacity:0} to{transform:translateY(0);opacity:1} }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  @keyframes growBar { from{transform:scaleY(0)} to{transform:scaleY(1)} }
+  @keyframes scan { from{background-position:0 0} to{background-position:0 -1200px} }
+  .ey-fade{animation:fadeIn .35s ease both}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001s !important} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- Firebase backend (shared project · namespace embed-tracker) + Ironworker Run backend -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+(function(){
+  const NS='embed-tracker';
+  try{ if(!firebase.apps.length) firebase.initializeApp({databaseURL:'https://gen-lang-client-0119642855-default-rtdb.firebaseio.com'}); }
+  catch(e){ console.error('Firebase init failed', e); }
+  const db=firebase.database();
+  window.fb={
+    listen:(p,cb)=>db.ref(NS+'/'+p).on('value',s=>cb(s.val())),
+    set:(p,d)=>db.ref(NS+'/'+p).set(d),
+    update:(p,d)=>db.ref(NS+'/'+p).update(d),
+    remove:(p)=>db.ref(NS+'/'+p).remove(),
+    get:(p)=>db.ref(NS+'/'+p).once('value').then(s=>s.val()),
+    inc:(p,by)=>db.ref(NS+'/'+p).transaction(v=>(v||0)+by),
+    max:(p,v)=>db.ref(NS+'/'+p).transaction(c=>Math.max(c||0,v)),
+    rootGet:(p)=>db.ref(p).once('value').then(s=>s.val()),
+    rootSet:(p,d)=>db.ref(p).set(d),
+  };
+})();
+</script>
+<script src="assets/game-backend.js"></script>
+<script type="text/babel" src="app/tokens.jsx"></script>
+<script type="text/babel" src="app/icons.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/ui.jsx"></script>
+<script type="text/babel" src="app/exports.jsx"></script>
+<script type="text/babel" src="app/blueprint.jsx"></script>
+<script type="text/babel" src="app/SignIn.jsx"></script>
+<script type="text/babel" src="app/MapScreen.jsx"></script>
+<script type="text/babel" src="app/MapDetail.jsx"></script>
+<script type="text/babel" src="app/Dashboard.jsx"></script>
+<script type="text/babel" src="app/Inventory.jsx"></script>
+<script type="text/babel" src="app/Game.jsx"></script>
+<script type="text/babel" src="app/GameDraw.jsx"></script>
+<script type="text/babel" src="app/Crew.jsx"></script>
+<script type="text/babel" src="app/App.jsx"></script>
+<script type="text/babel" src="app/main.jsx"></script>
+</body>
+</html>
