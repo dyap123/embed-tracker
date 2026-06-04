@@ -11,11 +11,11 @@ function Icon({ name, size = 18, stroke = 2, style, ...rest }) {
 }
 const ICONS = {
   dot: <circle cx="12" cy="12" r="3" />,
-  map: <><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" /><path d="M9 4v14M15 6v14" /></>,
-  dash: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
-  inventory: <><path d="M3 7l9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7" /><path d="M12 11v10" /></>,
+  map: <><path d="M12 21s6.5-6 6.5-11.5a6.5 6.5 0 1 0-13 0C5.5 15 12 21 12 21Z" /><circle cx="12" cy="9.5" r="2.4" /></>,
+  dash: <><path d="M3 21h18" /><rect x="5" y="10" width="3.6" height="9" rx="1" /><rect x="10.2" y="4.5" width="3.6" height="14.5" rx="1" /><rect x="15.4" y="13" width="3.6" height="6" rx="1" /></>,
+  inventory: <><rect x="4" y="4.5" width="16" height="6.6" rx="1.3" /><rect x="4" y="12.9" width="16" height="6.6" rx="1.3" /><path d="M9.5 7.8h5M9.5 16.2h5" /></>,
   crew: <><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" /><path d="M16 5.5a3 3 0 0 1 0 5M17 14c2.5.6 4 2.8 4 6" /></>,
-  game: <><rect x="2" y="7" width="20" height="11" rx="4" /><path d="M7 11v3M5.5 12.5h3" /><circle cx="16" cy="11.5" r="1" /><circle cx="18.5" cy="14" r="1" /></>,
+  game: <><rect x="2.5" y="7.5" width="19" height="10" rx="4.5" /><path d="M7 10.6v3.8M5.1 12.5h3.8" /><circle cx="16" cy="11.3" r="1.15" /><circle cx="18.4" cy="13.8" r="1.15" /></>,
   gear: <><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></>,
   close: <path d="M6 6l12 12M18 6 6 18" />,
   plus: <path d="M12 5v14M5 12h14" />,

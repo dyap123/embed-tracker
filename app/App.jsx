@@ -75,6 +75,7 @@ function App(){
     if (e && e.installed){ const u=userRef.current; if(u&&u.id){ window.fb.inc('users/'+u.id+'/points',-10); window.fb.inc('users/'+u.id+'/installs',-1); } }
     window.fb.remove('pins/'+id); track('edit'); }
   function restorePin(id, data){ window.fb.set('pins/'+id, { ...data, createdAt:Date.now() }); }   // undo of delete
+  function movePins(moves){ moves.forEach(m=> window.fb.update('pins/'+m.id, { x:+(+m.x).toFixed(4), y:+(+m.y).toFixed(4), exact:true })); track('edit'); }
 
   // ---- zones (Firebase-backed; pour-sequence highlight + mark-complete) ----
   function addZone(z){ const key='Z'+Math.random().toString(36).slice(2,9); window.fb.set('zones/'+key, {...z, createdAt:Date.now()}); return key; }
@@ -94,7 +95,7 @@ function App(){
   const screenEl = {
     map: <MapScreen embeds={embeds} updateEmbed={updateEmbed} bulkUpdate={bulkUpdate} user={user} isPhone={isPhone}
             zones={zones} onAddZone={addZone} onUpdateZone={updateZone} onRemoveZone={removeZone} onRestoreZone={restoreZone}
-            onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} grid={grid} onSaveGrid={saveGrid} />,
+            onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} onMovePins={movePins} grid={grid} onSaveGrid={saveGrid} />,
     dashboard: <Dashboard embeds={embeds} isPhone={isPhone} />,
     inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }} canEdit={!!user.manager} />,
@@ -164,11 +165,11 @@ function App(){
           {NAV.map(n=>{ const on=screen===n.id; return (
             <button key={n.id} onClick={()=>setScreen(n.id)} title={n.label}
               style={{ display:'flex', alignItems:'center', justifyContent:railOpen?'flex-start':'center', gap:12,
-                width:railOpen?'auto':44, height:railOpen?'auto':44, margin:railOpen?0:'0 auto',
+                width:railOpen?'auto':46, height:railOpen?'auto':46, margin:railOpen?0:'0 auto',
                 padding:railOpen?'10px 12px':0, borderRadius:T.radius.md,
-                color:on?'#fff':T.color.steel300, background:on?'linear-gradient(180deg,#243047,#18212e)':'transparent',
-                border:'1px solid '+(on?T.color.line:'transparent'), transition:'all .15s', textAlign:'left' }}>
-              <Icon name={n.icon} size={railOpen?20:21} stroke={on?2.2:1.7} />
+                color:on?'#fff':T.color.steel200, background:on?'linear-gradient(180deg,#243047,#18212e)':(railOpen?'transparent':'rgba(146,164,196,.07)'),
+                border:'1px solid '+(on?T.color.line:(railOpen?'transparent':T.color.line)), transition:'all .15s', textAlign:'left' }}>
+              <Icon name={n.icon} size={railOpen?20:22} stroke={on?2.2:1.8} />
               {railOpen && <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13, letterSpacing:'.04em', textTransform:'uppercase' }}>{n.label}</span>}
             </button>
           ); })}

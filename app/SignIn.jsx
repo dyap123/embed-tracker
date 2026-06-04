@@ -126,8 +126,8 @@ function SignIn({ onSignIn, crew, embeds=[] }){
             <Btn kind="primary" size="lg" icon="power" disabled={!user} onClick={badgeIn}
               style={{ opacity:user?1:.5, cursor:user?'pointer':'not-allowed' }}>Badge in</Btn>
           </div>
-          {err && <div style={{ color:T.color.red, fontSize:13, padding:'0 22px 14px', fontFamily:T.font.mono }}>✕ Wrong PIN — managers use 050103.</div>}
-          {needPin && !err && <div style={{ color:T.color.steel400, fontSize:12, padding:'0 22px 14px', fontFamily:T.font.mono }}>Manager PIN · 050103</div>}
+          {err && <div style={{ color:T.color.red, fontSize:13, padding:'0 22px 14px', fontFamily:T.font.mono }}>✕ Incorrect PIN — try again.</div>}
+          {needPin && !err && <div style={{ color:T.color.steel400, fontSize:12, padding:'0 22px 14px', fontFamily:T.font.mono }}>Enter your 6-digit manager PIN</div>}
         </div>
       </div>
 

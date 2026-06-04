@@ -12,7 +12,7 @@ function zonePts(z){ return isPoly(z)? z.points : rectToPoly(z); }
 function bboxOf(pts){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; pts.forEach(([x,y])=>{ x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y); }); return { x:x0, y:y0, w:x1-x0, h:y1-y0 }; }
 function pointInPoly(px,py,pts){ let c=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const [xi,yi]=pts[i],[xj,yj]=pts[j]; if(((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) c=!c; } return c; }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, grid, onSaveGrid }){
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, grid, onSaveGrid }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const [box, setBox] = React.useState({ w:1000, h:700 });
@@ -22,7 +22,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [seq, setSeq] = React.useState('2');               // current sequence (yellow)
   const [filter, setFilter] = React.useState('all');      // status filter
   const [cat, setCat] = React.useState('all');            // knife-plate filter
-  const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'pan'
+  const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'move' | 'pan'
+  const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [showLegend, setShowLegend] = React.useState(true);
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, sequence:'CUP', area:'A', mark:'' });
@@ -83,10 +84,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const marquee = React.useRef(null);  // marquee draft
   const vdrag = React.useRef(null);
   const sdrag = React.useRef(null);
+  const pdrag = React.useRef(null);    // moving a placed pin {id, nx, ny, moved}
   function relXY(e){ const r=vpRef.current.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
   function toFrac(px,py){ return { fx:((px-view.tx)/view.s)/plan.pw, fy:((py-view.ty)/view.s)/plan.ph }; }
 
   function onPointerDown(e){
+    if (e.button===1){ e.preventDefault(); const r=relXY(e); try{ vpRef.current.setPointerCapture(e.pointerId); }catch(err){}  // middle-click drag = pan, any tool
+      touched.current=true; drag.current={ x:r.x, y:r.y, tx:view.tx, ty:view.ty }; return; }
     if (e.target.closest('[data-pin]')) return;
     if (e.target.closest('[data-zone],[data-handle]')) return;
     if (e.target.closest('button, input, textarea, select, a, [data-ui]')) return;
@@ -96,15 +100,17 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
       pushUndo({ type:'pinRemove', id:key }); return; }   // stay in placement mode
     if (drawMode==='rect'){ drawing.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy }; setDraft({ ...drawing.current }); return; }
     if (drawMode==='poly'){ setPoly(p=>[...p,[+f.fx.toFixed(4),+f.fy.toFixed(4)]]); return; }
-    // drawMode 'off'
+    // drawMode 'move' or 'off' (select tool): empty-area drag = marquee select (so you can pick multiple to move)
     setSelZone(null); setReshape(false);
-    if (tool==='pan'){ touched.current=true; drag.current={ x, y, tx:view.tx, ty:view.ty }; return; }
-    // select tool → marquee
+    if (drawMode==='off' && tool==='pan'){ touched.current=true; drag.current={ x, y, tx:view.tx, ty:view.ty }; return; }
     marquee.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy, additive:e.shiftKey||e.metaKey||e.ctrlKey };
     setMarq({ x:f.fx, y:f.fy, w:0, h:0 });
   }
   function onPointerMove(e){
     const {x,y}=relXY(e); const f=toFrac(x,y);
+    if (pdrag.current){ const pd=pdrag.current; const dx=f.fx-pd.sf.fx, dy=f.fy-pd.sf.fy;
+      const dp={}; pd.ids.forEach(id=>{ const b=pd.base[id]; if(b) dp[id]={ nx:b.nx+dx, ny:b.ny+dy }; });
+      pd.moved=true; pd.last=dp; setDragPins(dp); return; }
     if (vdrag.current){ setLiveZones(applyVertex(vdrag.current.id, vdrag.current.vi, f.fx, f.fy)); return; }
     if (sdrag.current){ setLiveZones(translateZone(sdrag.current, f.fx-sdrag.current.fx, f.fy-sdrag.current.fy)); return; }
     if (drawing.current){ drawing.current={ ...drawing.current, x1:f.fx, y1:f.fy }; setDraft({ ...drawing.current }); return; }
@@ -112,6 +118,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (drag.current){ setView(v=>({ ...v, tx:drag.current.tx+(x-drag.current.x), ty:drag.current.ty+(y-drag.current.y) })); }
   }
   function onPointerUp(e){
+    if (pdrag.current){ const pd=pdrag.current; pdrag.current=null; setDragPins(null);
+      if (pd.moved && pd.last){
+        const prev = pd.ids.filter(id=>pd.base[id]).map(id=>({ id, x:pd.base[id].nx, y:pd.base[id].ny }));
+        const next = pd.ids.filter(id=>pd.last[id]).map(id=>({ id, x:+pd.last[id].nx.toFixed(4), y:+pd.last[id].ny.toFixed(4) }));
+        pushUndo({ type:'pinMove', moves:prev }); onMovePins(next);
+      } else { setSelId(pd.hitId); }       // click without drag → show its detail on the right
+      return; }
     if (vdrag.current){ commitLive(vdrag.current.id); vdrag.current=null; return; }
     if (sdrag.current){ commitLive(sdrag.current.id); sdrag.current=null; return; }
     if (drawing.current){ const z=normZone(drawing.current); drawing.current=null; setDraft(null);
@@ -155,7 +168,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if(inv.type==='remove') onRemoveZone(inv.id);
     else if(inv.type==='set'){ inv.z?onRestoreZone(inv.id, inv.z):onRemoveZone(inv.id); }
     else if(inv.type==='pinRemove') onRemovePin(inv.id);
-    else if(inv.type==='pinRestore') onRestorePin(inv.id, inv.data); }
+    else if(inv.type==='pinRestore') onRestorePin(inv.id, inv.data);
+    else if(inv.type==='pinMove') onMovePins(inv.moves); }
   function deleteZone(id){ const prev=zones.find(z=>z.id===id); if(!prev) return; pushUndo({ type:'set', id, z:prev }); onRemoveZone(id); setSelZone(null); setReshape(false); }
   function copyZone(id){ const z=zones.find(zz=>zz.id===id); if(z){ const {id:_d, createdAt:_c, ...rest}=z; clip.current=rest; } }
   function pasteZone(){ if(!clip.current) return; const z=clip.current; const off=0.025;
@@ -168,21 +182,20 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if(ids.length>1) setConfirm({ message:`Delete ${ids.length} embeds? You can undo with ⌘Z.`, onYes:()=>{ deletePins(ids); setConfirm(null); } });
     else deletePins(ids); }
 
-  // keyboard shortcuts (manager)
+  // keyboard shortcuts (undo + selection for all; markup/delete gated to managers)
   React.useEffect(()=>{
-    if(!manager) return;
     function onKey(e){
       const t=e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       const meta=e.metaKey||e.ctrlKey;
-      if (meta && /^[zZ]$/.test(e.key)){ e.preventDefault(); doUndo(); }
-      else if (meta && /^[cC]$/.test(e.key)){ if(selZone){ e.preventDefault(); copyZone(selZone); } }
-      else if (meta && /^[vV]$/.test(e.key)){ e.preventDefault(); pasteZone(); }
+      if (meta && /^[zZ]$/.test(e.key)){ e.preventDefault(); doUndo(); }                         // undo (anyone)
       else if (meta && /^[aA]$/.test(e.key)){ e.preventDefault(); setSelPins(visible.map(em=>em.id)); setSelId(null); }
-      else if (e.key==='Delete'||e.key==='Backspace'){
+      else if (meta && manager && /^[cC]$/.test(e.key)){ if(selZone){ e.preventDefault(); copyZone(selZone); } }
+      else if (meta && manager && /^[vV]$/.test(e.key)){ e.preventDefault(); pasteZone(); }
+      else if (manager && (e.key==='Delete'||e.key==='Backspace')){
         if(selPins.length){ e.preventDefault(); requestDeletePins(selPins); }
         else if(selZone){ e.preventDefault(); deleteZone(selZone); } }
       else if (e.key==='Escape'){ if(poly.length){ setPoly([]); setDrawMode('off'); } else if(drawMode!=='off'){ setDrawMode('off'); } else { setSelZone(null); setReshape(false); setSelPins([]); } }
-      else if (e.key==='Enter'){ if(drawMode==='poly'&&poly.length>=3){ e.preventDefault(); finishPoly(); } }
+      else if (manager && e.key==='Enter'){ if(drawMode==='poly'&&poly.length>=3){ e.preventDefault(); finishPoly(); } }
     }
     window.addEventListener('keydown', onKey); return ()=>window.removeEventListener('keydown', onKey);
   },[manager, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
@@ -218,7 +231,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   const uPerPx = 1/((plan.pw||1)*view.s);
   const swU = 2.2*uPerPx, handleU = 7*uPerPx;
-  const cursor = drawMode!=='off' ? 'crosshair' : (tool==='pan' ? (drag.current?'grabbing':'grab') : 'crosshair');
+  const cursor = drawMode==='move' ? 'grab' : drawMode!=='off' ? 'crosshair' : (tool==='pan' ? (drag.current?'grabbing':'grab') : 'crosshair');
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
@@ -227,7 +240,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
       <div ref={vpRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-        onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onMouseDown={e=>{ if(e.button===1) e.preventDefault(); }} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
         style={{ position:'relative', flex:1, overflow:'hidden', cursor, touchAction:'none' }}>
 
         <div style={{ position:'absolute', left:0, top:0, width:plan.pw, height:plan.ph,
@@ -282,11 +295,23 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {/* pins */}
           {visible.map(e=>{
             const st=pinState(e,seq); const col=STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
+            const dp = dragPins && dragPins[e.id]; const moving = !!dp; const px = moving?dp.nx:e.nx, py = moving?dp.ny:e.ny;
+            const moveMode = drawMode==='move';
             return (
-              <div key={e.id} data-pin onClick={ev=>{ ev.stopPropagation();
-                  if(ev.metaKey||ev.ctrlKey){ setSelPins(p=> p.includes(e.id)? p.filter(x=>x!==e.id) : [...p,e.id]); setSelId(null); }
+              <div key={e.id} data-pin
+                onPointerDown={moveMode ? (ev)=>{ if(ev.button!==0) return; ev.stopPropagation();
+                  if(ev.metaKey||ev.ctrlKey||ev.shiftKey){ setSelPins(p=> p.includes(e.id)? p.filter(x=>x!==e.id) : [...p,e.id]); setSelId(null); return; }  // shift/⌘-click builds a group
+                  try{vpRef.current.setPointerCapture(ev.pointerId);}catch(_){}
+                  const r=relXY(ev); const sf=toFrac(r.x,r.y);
+                  const ids = (pickSet.has(e.id) && selPins.length>0) ? selPins.slice() : [e.id];   // drag the whole selection if grabbed pin is in it
+                  const base={}; ids.forEach(id=>{ const em=embeds.find(x=>x.id===id); if(em) base[id]={ nx:em.nx, ny:em.ny }; });
+                  pdrag.current={ ids, base, sf, hitId:e.id, moved:false, last:null }; } : undefined}
+                onClick={ev=>{ ev.stopPropagation();
+                  if(moveMode) return;                                  // move mode: handled on pointer up
+                  if(ev.metaKey||ev.ctrlKey||ev.shiftKey){ setSelPins(p=> p.includes(e.id)? p.filter(x=>x!==e.id) : [...p,e.id]); setSelId(null); }
                   else { setSelId(e.id); setSelPins([]); } }}
-                style={{ position:'absolute', left:e.nx*100+'%', top:e.ny*100+'%', width:0, height:0, zIndex:(on||picked)?5:1 }}>
+                style={{ position:'absolute', left:px*100+'%', top:py*100+'%', width:0, height:0, zIndex:(on||picked||moving)?5:1,
+                  cursor: moveMode?(moving?'grabbing':'grab'):'pointer' }}>
                 <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, cursor:'pointer' }}>
                   <span style={{ position:'relative', width:on?16:12, height:on?16:12, borderRadius:'50%', background:col,
                     border:'2px solid '+(on?'#fff':'rgba(8,11,16,.85)'),
@@ -331,6 +356,16 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </div>
         )}
 
+        {/* move-mode banner */}
+        {drawMode==='move' && (
+          <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:10,
+            background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.amberHot, borderRadius:T.radius.pill, padding:'7px 8px 7px 14px', boxShadow:T.shadow.card }}>
+            <Icon name="drag" size={15} style={{ color:T.color.amberHot }} />
+            <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13 }}>Move mode — drag any pin to reposition</span>
+            <Btn size="sm" kind="primary" icon="check" onClick={()=>setDrawMode('off')}>Done</Btn>
+          </div>
+        )}
+
         {/* multi-select action bar */}
         {selPins.length>0 && drawMode==='off' && (
           <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:8,
@@ -357,7 +392,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
           background:'rgba(8,11,16,.6)', padding:'4px 9px', borderRadius:6, border:'1px solid '+T.color.line }}>
-          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER':(tool==='select'?' · DRAG TO SELECT':' · DRAG TO PAN')}
+          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='move'?' · DRAG A PIN TO MOVE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER':(tool==='select'?' · DRAG TO SELECT':' · DRAG TO PAN')}
         </div>
 
         {sel && <PinDetail key={sel.id} embed={sel} seq={seq} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
@@ -428,8 +463,12 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
       <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
         {manager && drawMode==='poly' && poly.length>=3 && <Btn size="sm" kind="primary" icon="check" onClick={finishPoly}>Finish</Btn>}
         {manager && (drawMode==='rect'||drawMode==='poly') && <Btn size="sm" kind="ghost" icon="close" onClick={cancel}>Cancel</Btn>}
-        {/* Add embed — open to everyone on the roster (permissions come later) */}
-        {drawMode==='off' && <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>}
+        {drawMode==='move' && <Btn size="sm" kind="primary" icon="check" onClick={()=>setDrawMode('off')}>Done moving</Btn>}
+        {/* Add embed / Move — open to everyone on the roster (permissions come later) */}
+        {drawMode==='off' && <>
+          <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>
+          <Btn size="sm" kind="ghost" icon="drag" onClick={()=>setDrawMode('move')}>Move</Btn>
+        </>}
         {manager && drawMode==='off' && <>
           <Btn size="sm" kind="ghost" icon="zone" onClick={()=>setDrawMode('rect')}>Box</Btn>
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>

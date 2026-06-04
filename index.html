@@ -69,22 +69,16 @@
 })();
 </script>
 <script src="assets/game-backend.js"></script>
-<script type="text/babel" src="app/tokens.jsx"></script>
-<script type="text/babel" src="app/icons.jsx"></script>
-<script type="text/babel" src="app/data.jsx"></script>
-<script type="text/babel" src="app/ui.jsx"></script>
-<script type="text/babel" src="app/exports.jsx"></script>
-<script type="text/babel" src="app/blueprint.jsx"></script>
-<script type="text/babel" src="app/SignIn.jsx"></script>
-<script type="text/babel" src="app/MapScreen.jsx"></script>
-<script type="text/babel" src="app/MapDetail.jsx"></script>
-<script type="text/babel" src="app/Dashboard.jsx"></script>
-<script type="text/babel" src="app/Inventory.jsx"></script>
-<script type="text/babel" src="app/Game.jsx"></script>
-<script type="text/babel" src="app/GameDraw.jsx"></script>
-<script type="text/babel" src="app/Crew.jsx"></script>
-<script type="text/babel" src="app/Profile.jsx"></script>
-<script type="text/babel" src="app/App.jsx"></script>
-<script type="text/babel" src="app/main.jsx"></script>
+<script>
+  /* cache-busting loader — appends a per-load version so edited .jsx always reload */
+  (function(){
+    var v = Date.now();
+    var files = ['tokens','icons','data','ui','exports','blueprint','SignIn','MapScreen',
+                 'MapDetail','Dashboard','Inventory','Game','GameDraw','Crew','Profile','App','main'];
+    files.forEach(function(f){
+      document.write('<script type="text/babel" src="app/'+f+'.jsx?v='+v+'"><\/script>');
+    });
+  })();
+</script>
 </body>
 </html>
