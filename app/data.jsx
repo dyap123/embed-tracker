@@ -115,7 +115,7 @@ const CREW = [
   { id:'danzel', name:'Danzel Yap',     role:'PWJV · The GOAT 🐐',  pin:'050103', initials:'DY', installs:0, points:0, manager:true, goat:true },
   { id:'misael', name:'Misael Iniguez', role:"PWJV · Danzel's boss", pin:'050103', initials:'MI', installs:0, points:0, manager:true },
   { id:'kate',   name:'Kate Schuck',    role:'APM · PWJV',          pin:null,     initials:'KS', installs:0, points:0 },
-  { id:'moises', name:'Moises Zuniga',  role:'PE · PWJV',           pin:null,     initials:'MZ', installs:0, points:0 },
+  { id:'moises', name:'Moises Espinoza', role:'PE · PWJV',          pin:null,     initials:'ME', installs:0, points:0 },
   { id:'freddy', name:'Freddy',         role:'PE · SME',            pin:null,     initials:'FR', installs:0, points:0 },
 ];
 
