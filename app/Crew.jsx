@@ -1,8 +1,8 @@
-/* EmbedYap — Crew: install-points leaderboard + Ironworker Run */
+/* EmbedYap — Crew: edits leaderboard + Ironworker Run */
 function Crew({ embeds, user, isPhone, crew }){
   const ROSTER = (crew && crew.length) ? crew : (window.CREW || CREW);
-  const ranked = [...ROSTER].sort((a,b)=>(b.points||0)-(a.points||0));
-  const topPts = (ranked[0] && ranked[0].points) || 1;
+  const ranked = [...ROSTER].sort((a,b)=>(b.updates||0)-(a.updates||0));
+  const topPts = (ranked[0] && ranked[0].updates) || 1;
   const top3 = ranked.slice(0,3);
   const rest = ranked.slice(3);
   const order=[1,0,2]; // podium center = #1
@@ -10,7 +10,7 @@ function Crew({ embeds, user, isPhone, crew }){
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
       <div className="ey-fade" style={{ maxWidth:1080, margin:'0 auto', padding:isPhone?'18px 14px 90px':'28px 30px 60px' }}>
-        <Header title="Crew" sub="Install points · rank ladder" />
+        <Header title="Crew" sub="Edits made · rank ladder" />
 
         {/* podium */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, alignItems:'end', marginTop:20 }}>
@@ -31,8 +31,8 @@ function Crew({ embeds, user, isPhone, crew }){
                 </div>
                 <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:tall?18:16, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name}</div>
                 <div style={{ fontSize:11.5, color:T.color.steel300 }}>{c.role}</div>
-                <div style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:tall?24:19, color:medal, marginTop:8 }}>{(c.points||0).toLocaleString()}</div>
-                <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, letterSpacing:'.1em' }}>{c.installs||0} INSTALLS</div>
+                <div style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:tall?24:19, color:medal, marginTop:8 }}>{(c.updates||0).toLocaleString()}</div>
+                <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, letterSpacing:'.1em' }}>EDITS · {c.installs||0} INSTALLS</div>
               </Card>
             );
           })}
@@ -51,13 +51,13 @@ function Crew({ embeds, user, isPhone, crew }){
                   display:'grid', placeItems:'center', fontFamily:T.font.display, fontWeight:700, fontSize:15, border:'1px solid '+T.color.line }}>{c.initials}</span>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:16 }}>{c.name}{me&&<span style={{color:T.color.amberHot,fontSize:12,marginLeft:8}}>YOU</span>}</div>
-                  <div style={{ fontSize:12, color:T.color.steel300 }}>{c.role} · {c.installs||0} installs · {c.updates||0} updates</div>
+                  <div style={{ fontSize:12, color:T.color.steel300 }}>{c.role} · {c.updates||0} edits · {c.installs||0} installs</div>
                 </div>
-                {/* points bar */}
+                {/* edits bar */}
                 <div style={{ width:isPhone?70:160, display:'flex', alignItems:'center', gap:10 }}>
                   {!isPhone && <div style={{ flex:1, height:6, borderRadius:4, background:'rgba(0,0,0,.3)', overflow:'hidden' }}>
-                    <div style={{ width:((c.points||0)/topPts*100)+'%', height:'100%', background:'linear-gradient(90deg,#28355C,#7E78F0)', borderRadius:4 }} /></div>}
-                  <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:14, color:'#fff', minWidth:46, textAlign:'right' }}>{c.points.toLocaleString()}</span>
+                    <div style={{ width:((c.updates||0)/topPts*100)+'%', height:'100%', background:'linear-gradient(90deg,#28355C,#7E78F0)', borderRadius:4 }} /></div>}
+                  <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:14, color:'#fff', minWidth:46, textAlign:'right' }}>{(c.updates||0).toLocaleString()}</span>
                 </div>
               </div>
             );

@@ -69,7 +69,7 @@ function App(){
   function bulkInstall(ids, val){ const u=userRef.current; let d=0;
     ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(!e || !!e.installed===!!val) return;
       window.fb.update('pins/'+id, { installed:!!val, installedAt: val?today():null, installedBy: val?(u?u.name:null):null }); d += val?1:-1; });
-    if(u&&u.id && d){ window.fb.inc('users/'+u.id+'/points', d*10); window.fb.inc('users/'+u.id+'/installs', d); }
+    if(u&&u.id && d){ window.fb.inc('users/'+u.id+'/points', d*10); window.fb.inc('users/'+u.id+'/installs', d); window.fb.inc('users/'+u.id+'/updates', Math.abs(d)); }
     flash(remarkFor(val?'install':'uninstall')); }
 
   // ---- embed pin CRUD (manager, via plan editing) ----
