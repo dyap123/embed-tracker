@@ -78,12 +78,13 @@ function buildEmbeds(){
       const phase = PHASES[Math.min(3, Math.floor(rng()*4))];
       const installed = rng() < AREA_PROGRESS[area];
       const hasKnife = tp.key==='knife' || rng() < 0.10;
+      const hasStub = tp.key==='stub' || rng() < 0.08;
       out.push({
         id, type: tp.key, typeLabel: tp.label, code,
         grid: `${GRID_COLS[ci]}-${GRID_ROWS[ri]}`,
         nx:+nx.toFixed(4), ny:+ny.toFixed(4),
         sequence, phase, area, pour: `${area}·P${sequence}`,
-        installed, hasKnife,
+        installed, hasKnife, hasStub,
         installedAt: installed ? dayOffset(rng) : null,
         rfi: null,
       });
@@ -162,6 +163,7 @@ function pinToEmbed(key, p){
   const C=gridCols(), R=gridRows();
   const [ci, ri] = gridIdx(p);
   const knife = !!p.knifePlate;                              // attribute: is there a knife plate at this anchor?
+  const stub = !!p.stubColumn;                               // attribute: is there a stub column here?
   const tp = EMBED_TYPES[0];                                 // every pin is an anchor bolt
   const seq = p.sequence || '1', phase = p.phase || '1', area = p.area || areaFor(ci, ri);
   const at = p.installedAt ? (typeof p.installedAt==='number' ? new Date(p.installedAt).toISOString().slice(0,10) : p.installedAt) : null;
@@ -173,9 +175,14 @@ function pinToEmbed(key, p){
     id: key, mark: p.embedId || '—', type: tp.key, typeLabel: tp.label, code: tp.code,
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
     sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
-    installed: !!p.installed, hasKnife: knife, nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
+    installed: !!p.installed, hasKnife: knife, hasStub: stub, nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
   };
 }
+
+/* short date for labels: 'YYYY-MM-DD' -> 'Mon D' (e.g. 'Jun 12') */
+function shortDate(d){ if(!d) return ''; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d); if(!m) return d;
+  const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(+m[2])-1]||''; return `${mo} ${+m[3]}`; }
+window.shortDate = shortDate;
 
 /* ---- motivational remarks (shown after each tracked update) ---- */
 const REMARKS = {

@@ -75,7 +75,7 @@ function App(){
   // ---- embed pin CRUD (manager, via plan editing) ----
   function addPin(p){ const key='P'+Math.random().toString(36).slice(2,9);
     window.fb.set('pins/'+key, { embedId:p.embedId||'NEW', x:+(p.x||0).toFixed(4), y:+(p.y||0).toFixed(4), exact:true,
-      sequence:p.sequence||'1', phase:p.phase||'1', area:p.area||'A', knifePlate:!!p.knifePlate, installed:false, createdAt:Date.now() });
+      sequence:p.sequence||'1', phase:p.phase||'1', area:p.area||'A', knifePlate:!!p.knifePlate, stubColumn:!!p.stubColumn, installed:false, createdAt:Date.now() });
     track('edit'); return key; }
   function removePin(id){ const e=embeds.find(x=>x.id===id);
     if (e && e.installed){ const u=userRef.current; if(u&&u.id){ window.fb.inc('users/'+u.id+'/points',-10); window.fb.inc('users/'+u.id+'/installs',-1); } }
@@ -102,7 +102,7 @@ function App(){
     map: <MapScreen embeds={embeds} updateEmbed={updateEmbed} bulkUpdate={bulkUpdate} user={user} isPhone={isPhone}
             zones={zones} onAddZone={addZone} onUpdateZone={updateZone} onRemoveZone={removeZone} onRestoreZone={restoreZone}
             onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} onMovePins={movePins} onBulkInstall={bulkInstall} grid={grid} onSaveGrid={saveGrid} />,
-    dashboard: <Dashboard embeds={embeds} isPhone={isPhone} />,
+    dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,
     inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}
                  onAddType={(id,patch)=>{ if(id) { window.fb.set('embeds/'+id, { id, ...(patch||{}) }); track('edit'); } }}

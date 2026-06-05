@@ -26,9 +26,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
-  const [showZones, setShowZones] = React.useState(true);   // show/hide markups (highlights)
+  const [layerVis, setLayerVis] = React.useState({ PWJV:true, WCG:true });   // per-layer markup show/hide
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
-  const [place, setPlace] = React.useState({ knifePlate:false, sequence:'1', phase:'1', area:'A', mark:'' });
+  const [place, setPlace] = React.useState({ knifePlate:false, stubColumn:false, sequence:'1', phase:'1', area:'A', mark:'' });
   const [draft, setDraft] = React.useState(null);         // rect zone being dragged
   const [marq, setMarq] = React.useState(null);           // marquee selection rect
   const [poly, setPoly] = React.useState([]);             // polygon vertices in progress
@@ -100,7 +100,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (e.target.closest('button, input, textarea, select, a, [data-ui]')) return;
     const {x,y}=relXY(e); const f=toFrac(x,y);
     try{ vpRef.current.setPointerCapture(e.pointerId); }catch(err){}
-    if (drawMode==='pin'){ const key=onAddPin({ x:+f.fx.toFixed(4), y:+f.fy.toFixed(4), embedId:place.mark||'NEW', knifePlate:place.knifePlate, sequence:place.sequence, phase:place.phase, area:place.area });
+    if (drawMode==='pin'){ const key=onAddPin({ x:+f.fx.toFixed(4), y:+f.fy.toFixed(4), embedId:place.mark||'NEW', knifePlate:place.knifePlate, stubColumn:place.stubColumn, sequence:place.sequence, phase:place.phase, area:place.area });
       pushUndo({ type:'pinRemove', id:key }); return; }   // stay in placement mode
     if (drawMode==='rect'){ drawing.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy }; setDraft({ ...drawing.current }); return; }
     if (drawMode==='poly'){ setPoly(p=>[...p,[+f.fx.toFixed(4),+f.fy.toFixed(4)]]); return; }
@@ -186,24 +186,24 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   function copyEmbeds(){
     if (selPins.length>0){
       const items = selPins.map(id=>embeds.find(x=>x.id===id)).filter(Boolean)
-        .map(e=>({ mark:e.mark, knifePlate:!!e.hasKnife, sequence:e.sequence, phase:e.phase, area:e.area, nx:e.nx, ny:e.ny }));
+        .map(e=>({ mark:e.mark, knifePlate:!!e.hasKnife, stubColumn:!!e.hasStub, sequence:e.sequence, phase:e.phase, area:e.area, nx:e.nx, ny:e.ny }));
       clipEmbed.current = { multi:true, items };
     } else if (selId){
-      const e=embeds.find(x=>x.id===selId); if(e) clipEmbed.current={ multi:false, items:[{ mark:e.mark, knifePlate:!!e.hasKnife, sequence:e.sequence, phase:e.phase, area:e.area }] };
+      const e=embeds.find(x=>x.id===selId); if(e) clipEmbed.current={ multi:false, items:[{ mark:e.mark, knifePlate:!!e.hasKnife, stubColumn:!!e.hasStub, sequence:e.sequence, phase:e.phase, area:e.area }] };
     }
   }
   function pasteEmbeds(){
     const c=clipEmbed.current; if(!c || !c.items || !c.items.length) return;
     if (c.multi){
       const off=0.02, keys=[];
-      c.items.forEach(it=>{ const key=onAddPin({ x:(it.nx||0)+off, y:(it.ny||0)+off, embedId:it.mark||'NEW', knifePlate:it.knifePlate, sequence:it.sequence, phase:it.phase, area:it.area }); keys.push(key); });
+      c.items.forEach(it=>{ const key=onAddPin({ x:(it.nx||0)+off, y:(it.ny||0)+off, embedId:it.mark||'NEW', knifePlate:it.knifePlate, stubColumn:it.stubColumn, sequence:it.sequence, phase:it.phase, area:it.area }); keys.push(key); });
       pushUndo({ type:'pinRemoveMany', ids:keys }); setSelPins(keys); setSelId(null);
     } else {
-      const it=c.items[0]; setPlace({ mark:it.mark||'', knifePlate:!!it.knifePlate, sequence:it.sequence||'1', phase:it.phase||'1', area:it.area||'A' }); setDrawMode('pin');
+      const it=c.items[0]; setPlace({ mark:it.mark||'', knifePlate:!!it.knifePlate, stubColumn:!!it.stubColumn, sequence:it.sequence||'1', phase:it.phase||'1', area:it.area||'A' }); setDrawMode('pin');
     }
   }
 
-  function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
+  function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, stubColumn:!!e.hasStub, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
   function deletePins(ids){ ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(e) pushUndo({ type:'pinRestore', id, data:rawPin(e) }); onRemovePin(id); }); setSelPins([]); setSelId(null); }
   function requestDeletePins(ids){ if(!ids.length) return;
     if(ids.length>1) setConfirm({ message:`Delete ${ids.length} embeds? You can undo with ⌘Z.`, onYes:()=>{ deletePins(ids); setConfirm(null); } });
@@ -240,6 +240,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql)) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e,seq)===k).length; return m; },{});
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
+  const stubCount = embeds.filter(e=>e.hasStub).length;
   const labelsOn = view.s > 2.2;
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z=>z.id===selZone) || null;
@@ -254,7 +255,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     bulkUpdate(ids, patch);
     if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
     const bb = bboxOf(pts);
-    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
+    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:z.layer||'PWJV', date:z.date||'', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
   }
@@ -265,7 +266,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,showZones,setShowZones,
+      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,layerVis,setLayerVis,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -280,8 +281,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
-            {showZones && renderZones.map(z=>{
-              const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
+            {renderZones.filter(z=>layerVis[z.layer||'PWJV']).map(z=>{
+              const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
                   <polygon data-zone points={dpts} fill={`rgba(${gc},${z.done?0.20:0.12})`}
@@ -308,14 +309,14 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               {poly.map((p,i)=><circle key={'pp'+i} cx={p[0]} cy={p[1]} r={handleU*0.8} fill={T.color.amberHot} />)}
             </>)}
             {draft && (()=>{ const z=normZone(draft); return <rect x={z.x} y={z.y} width={z.w} height={z.h} fill="rgba(126,120,240,.14)" stroke={T.color.amberHot} strokeWidth={swU} strokeDasharray={`${swU*3} ${swU*3}`} />; })()}
-            {marq && <rect x={marq.x} y={marq.y} width={marq.w} height={marq.h} fill="rgba(83,225,232,.10)" stroke={T.color.cyan} strokeWidth={swU} strokeDasharray={`${swU*2} ${swU*2}`} />}
+            {marq && <rect x={marq.x} y={marq.y} width={marq.w} height={marq.h} fill="rgba(166,160,255,.12)" stroke={T.color.amberHot} strokeWidth={swU} strokeDasharray={`${swU*2} ${swU*2}`} />}
           </svg>
 
           {/* zone labels */}
-          {showZones && renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
-            const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240');
+          {renderZones.filter(z=>layerVis[z.layer||'PWJV']).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+            const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
             const n=embeds.filter(e=>pointInPoly(e.nx,e.ny,zonePts(z))).length;   // live count — updates as the grid/embeds change
-            const lbl=`${z.nextPour?'NEXT · ':''}${seqLabel(z.pour)} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.done?' ✓':''}`; return (
+            const lbl=`${z.nextPour?'NEXT · ':''}${seqLabel(z.pour)} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.date?' · '+shortDate(z.date):''}${z.done?' ✓':''}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
               <span style={{ position:'absolute', top:0, left:0, transform:`scale(${Math.max(0.5, Math.min(1.05, 1/view.s))})`, transformOrigin:'0 0',
                 background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:8.5, fontWeight:700,
@@ -342,10 +343,12 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
                 <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, cursor:'pointer' }}>
                   <span style={{ position:'relative', width:on?16:12, height:on?16:12, borderRadius:'50%', background:col,
                     border:'2px solid '+(on?'#fff':'rgba(8,11,16,.85)'),
-                    boxShadow: picked?`0 0 0 3px ${T.color.cyan}, 0 1px 4px rgba(0,0,0,.6)`:`0 0 0 ${on?3:1.5}px ${col}55, 0 1px 4px rgba(0,0,0,.6)`,
+                    boxShadow: picked?`0 0 0 3px #fff, 0 1px 4px rgba(0,0,0,.6)`:`0 0 0 ${on?3:1.5}px ${col}55, 0 1px 4px rgba(0,0,0,.6)`,
                     animation: st==='installed'&&on?'pinPulse 1.6s 2':'none' }}>
-                    {/* knife-plate present marker (blue diamond) */}
+                    {/* knife-plate present marker (blue diamond, top-left) */}
                     {e.hasKnife && <span style={{ position:'absolute', top:-5, left:-5, width:7, height:7, background:T.color.blue, border:'1.5px solid #0C111A', transform:'rotate(45deg)' }} />}
+                    {/* stub-column present marker (orange square, bottom-left) */}
+                    {e.hasStub && <span style={{ position:'absolute', bottom:-5, left:-5, width:7, height:7, background:'#FF9650', border:'1.5px solid #0C111A' }} />}
                     {e.rfi && <span style={{ position:'absolute', top:-5, right:-5, width:7, height:7, borderRadius:'50%',
                       background: e.rfi.status==='Open'?T.color.red:e.rfi.status==='Answered'?T.color.yellow:T.color.steel300, border:'1.5px solid #0C111A' }} />}
                   </span>
@@ -362,6 +365,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:.75 }}>
                 <span style={{ position:'relative', width:13, height:13, borderRadius:'50%', background:T.color.amberHot, border:'2px dashed #fff', boxShadow:'0 0 10px rgba(166,160,255,.7)' }}>
                   {place.knifePlate && <span style={{ position:'absolute', top:-5, left:-5, width:7, height:7, background:T.color.blue, border:'1.5px solid #0C111A', transform:'rotate(45deg)' }} />}
+                  {place.stubColumn && <span style={{ position:'absolute', bottom:-5, left:-5, width:7, height:7, background:'#FF9650', border:'1.5px solid #0C111A' }} />}
                 </span>
                 <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:'#fff', background:'rgba(8,11,16,.8)', padding:'1px 4px', borderRadius:3, whiteSpace:'nowrap' }}>{place.mark||'NEW'}</span>
               </div>
@@ -388,6 +392,12 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               <div><div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:14, textTransform:'uppercase', letterSpacing:'.03em', color:place.knifePlate?T.color.blue:'#fff' }}>Knife plate</div>
                 <div style={{ fontSize:11.5, color:T.color.steel300, marginTop:2 }}>Is there a knife plate here?</div></div>
               <Toggle on={place.knifePlate} onChange={()=>setPlace(p=>({...p,knifePlate:!p.knifePlate}))} />
+            </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
+              background:'rgba(0,0,0,.22)', border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:'11px 14px' }}>
+              <div><div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:14, textTransform:'uppercase', letterSpacing:'.03em', color:place.stubColumn?'#FF9650':'#fff' }}>Stub column</div>
+                <div style={{ fontSize:11.5, color:T.color.steel300, marginTop:2 }}>Is there a stub column here?</div></div>
+              <Toggle on={place.stubColumn} onChange={()=>setPlace(p=>({...p,stubColumn:!p.stubColumn}))} />
             </div>
             <Field label="Sequence"><Segmented value={place.sequence} onChange={v=>setPlace(p=>({...p,sequence:v}))} options={SEQUENCES} /></Field>
             <Field label="Phase"><Segmented value={place.phase} onChange={v=>setPlace(p=>({...p,phase:v}))} options={PHASES} /></Field>
@@ -420,7 +430,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </div>
         )}
 
-        {showLegend && <Legend counts={counts} total={embeds.length} knifeCount={knifeCount} onClose={()=>setShowLegend(false)} />}
+        {showLegend && <Legend counts={counts} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} onClose={()=>setShowLegend(false)} />}
         {!showLegend && <Btn size="sm" kind="solid" icon="layers" onClick={()=>setShowLegend(true)} style={{ position:'absolute', left:14, bottom:14 }}>Legend</Btn>}
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
@@ -459,7 +469,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,showZones,setShowZones,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,layerVis,setLayerVis,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   return (
     <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', flexWrap:'wrap',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#141A24','#0E131B'), position:'relative', zIndex:6 }}>
@@ -503,7 +513,16 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>
           <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={()=>setGridMode(g=>!g)}>Grid</Btn>
         </>}
-        <button onClick={()=>setShowZones(s=>!s)} title={showZones?'Hide markups':'Show markups'} style={{ ...zbtn, width:32, height:30, background:showZones?'rgba(126,120,240,.18)':'rgba(0,0,0,.3)', border:'1px solid '+(showZones?'rgba(126,120,240,.5)':T.color.line), color:showZones?T.color.amberHot:T.color.steel400 }}><Icon name={showZones?'eye':'eyeOff'} size={16}/></button>
+        <div style={{ display:'flex', gap:4 }}>
+          {[['PWJV','126,120,240'],['WCG','82,230,224']].map(([L,rgb])=>{ const on=layerVis[L]; return (
+            <button key={L} onClick={()=>setLayerVis(v=>({...v,[L]:!v[L]}))} title={(on?'Hide ':'Show ')+L+' markups'}
+              style={{ display:'flex', alignItems:'center', gap:5, height:30, padding:'0 9px', borderRadius:T.radius.md,
+                background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.3)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line),
+                color:on?`rgb(${rgb})`:T.color.steel400, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.04em' }}>
+              <Icon name={on?'eye':'eyeOff'} size={14}/>{L}
+            </button>
+          ); })}
+        </div>
         <button onClick={toggleFull} title={full?'Exit full screen':'Full screen'} style={{ ...zbtn, width:32, height:30, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line }}><Icon name={full?'minimize':'maximize'} size={16}/></button>
         <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,.3)', borderRadius:T.radius.md, padding:3, border:'1px solid '+T.color.line }}>
           <button onClick={zoomOut} style={zbtn}><Icon name="minus" size={16}/></button>
@@ -517,7 +536,7 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
 const zbtn = { width:30, height:28, display:'grid', placeItems:'center', borderRadius:6, color:T.color.steel200 };
 
 /* ---- legend ---- */
-function Legend({ counts, total, knifeCount, onClose }){
+function Legend({ counts, total, knifeCount, stubCount, onClose }){
   return (
     <div data-ui style={{ position:'absolute', left:14, bottom:14, background:steelPlate('#161D29','#0F141C'),
       border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:'12px 14px', boxShadow:T.shadow.card, minWidth:174 }}>
@@ -537,6 +556,11 @@ function Legend({ counts, total, knifeCount, onClose }){
           <span style={{ width:9, height:9, background:T.color.blue, transform:'rotate(45deg)', display:'inline-block', marginLeft:1 }} />
           <span style={{ color:T.color.offwhite, flex:1 }}>Knife plate</span>
           <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{knifeCount}</span>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
+          <span style={{ width:9, height:9, background:'#FF9650', display:'inline-block', marginLeft:1 }} />
+          <span style={{ color:T.color.offwhite, flex:1 }}>Stub column</span>
+          <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{stubCount}</span>
         </div>
       </div>
       <div style={{ marginTop:9, paddingTop:9, borderTop:'1px solid '+T.color.line, display:'flex', justifyContent:'space-between', fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400 }}>

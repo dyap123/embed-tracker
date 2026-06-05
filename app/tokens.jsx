@@ -76,8 +76,9 @@ const STATE = {
   installed: { key:'installed', label:'Installed',        color:T.color.green,  dot:T.color.green },
   todo:      { key:'todo',      label:'To install',       color:T.color.red,    dot:T.color.red },
   current:   { key:'current',   label:'Current sequence', color:T.color.yellow, dot:T.color.yellow },
-  next:      { key:'next',      label:'Next pour',        color:T.color.pink,   dot:T.color.pink },
+  next:      { key:'next',      label:'Next pour',        color:T.color.cyan,   dot:T.color.cyan },
   knife:     { key:'knife',     label:'Knife plate',      color:T.color.blue,   dot:T.color.blue },
+  stub:      { key:'stub',      label:'Stub column',      color:'#FF9650',      dot:'#FF9650' },
 };
 
 Object.assign(window, { T, TEX, steelPlate, navyPlate, accentPlate, STATE });

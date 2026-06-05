@@ -10,7 +10,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const byMark = {};
   Object.values(types||{}).forEach(t=>{ if(t&&t.id) byMark[t.id] = { ...t }; });
   embeds.forEach(e=>{ const m = byMark[e.mark] || (byMark[e.mark] = { id:e.mark, desc:e.typeLabel, seq:e.sequence });
-    m._pinned = (m._pinned||0)+1; if(e.installed) m._inst = (m._inst||0)+1; if(e.hasKnife) m.knifePlate = true; });
+    m._pinned = (m._pinned||0)+1; if(e.installed) m._inst = (m._inst||0)+1; if(e.hasKnife) m.knifePlate = true; if(e.hasStub) m.stubColumn = true; });
   const ql = q.trim().toLowerCase();
   const rows = Object.values(byMark)
     .filter(r=> !ql || String(r.id).toLowerCase().includes(ql) || String(r.desc||'').toLowerCase().includes(ql) || String(r.supplier||'').toLowerCase().includes(ql))
@@ -78,7 +78,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                     <span style={{ width:42, height:30, borderRadius:7, display:'grid', placeItems:'center', flex:'0 0 auto',
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
-                      <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}</div>
+                      <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
                       <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}</div>
                     </span>
                   </div>

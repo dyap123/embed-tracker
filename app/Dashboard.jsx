@@ -1,5 +1,5 @@
 /* EmbedYap — Dashboard: KPIs, installed-over-time, by-area, by-sequence, next pour, exports */
-function Dashboard({ embeds, isPhone }){
+function Dashboard({ embeds, zones=[], isPhone }){
   const k = kpis(embeds);
   const series = installSeries(embeds);
   const [toast, setToast] = React.useState(null);
@@ -10,8 +10,10 @@ function Dashboard({ embeds, isPhone }){
   // next pour = embeds tagged on the plan (zone "Next pour" toggle)
   const nextPins = embeds.filter(e=>e.nextPour);
   const nextRemaining = nextPins.filter(e=>!e.installed).length;
-  const ngMap = {}; nextPins.forEach(e=>{ const key=`${seqLabel(e.sequence)} · Ph ${e.phase||'1'} · ${e.area}`; const g=ngMap[key]||(ngMap[key]={total:0,inst:0}); g.total++; if(e.installed) g.inst++; });
-  const nextGroups = Object.entries(ngMap).map(([k,v])=>({ k, ...v })).sort((a,b)=>a.k.localeCompare(b.k, undefined, {numeric:true}));
+  // scheduled next-pour zones (carry the date); count live embeds inside by area+sequence(+phase)
+  const cnt = (z)=>{ const inst=embeds.filter(e=>e.nextPour&&e.area===z.area&&String(e.sequence)===String(z.pour)&&String(e.phase||'1')===String(z.phase||'1')); return { total:inst.length, done:inst.filter(e=>e.installed).length }; };
+  const nextGroups = (zones||[]).filter(z=>z.nextPour).map(z=>{ const c=cnt(z); return { key:`${seqLabel(z.pour)} · Ph ${z.phase||'1'} · ${z.area}`, date:z.date||'', layer:z.layer||'PWJV', ...c }; })
+    .sort((a,b)=> (a.date||'9999').localeCompare(b.date||'9999') || a.key.localeCompare(b.key, undefined, {numeric:true}));
 
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
@@ -57,22 +59,27 @@ function Dashboard({ embeds, isPhone }){
             <ChartHead title="Next pour" note="tagged on the plan" />
             {nextPins.length===0 ? (
               <div style={{ marginTop:16, fontSize:13, color:T.color.steel400, lineHeight:1.55 }}>
-                No next pour tagged yet. On the <b style={{color:'#fff'}}>Plan</b>, draw a markup and turn on <b style={{color:T.color.pink}}>Next pour</b> to flag the embeds for the upcoming pour.
+                No next pour tagged yet. On the <b style={{color:'#fff'}}>Plan</b>, draw a markup and turn on <b style={{color:T.color.cyan}}>Next pour</b> (set a pour date) to flag the embeds for the upcoming pour.
               </div>
             ) : (
               <>
                 <div style={{ display:'flex', alignItems:'baseline', gap:10, marginTop:12 }}>
-                  <span style={{ fontFamily:T.font.display, fontWeight:800, fontSize:40, lineHeight:.9, color:T.color.pink }}>{nextRemaining}</span>
+                  <span style={{ fontFamily:T.font.display, fontWeight:800, fontSize:40, lineHeight:.9, color:T.color.cyan }}>{nextRemaining}</span>
                   <span style={{ fontSize:13, color:T.color.steel300 }}>embeds to set<br/><span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>{nextPins.length} tagged total</span></span>
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:14 }}>
                   {nextGroups.map(g=>(
-                    <div key={g.k} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 12px', borderRadius:T.radius.md,
-                      background:'rgba(255,111,181,.08)', border:'1px solid rgba(255,111,181,.3)' }}>
-                      <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14 }}>{g.k}</span>
-                      <span style={{ fontFamily:T.font.mono, fontSize:13, color: g.inst===g.total?T.color.green:T.color.steel200 }}>{g.inst}/{g.total} set</span>
+                    <div key={g.key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 12px', borderRadius:T.radius.md,
+                      background:'rgba(82,230,224,.08)', border:'1px solid rgba(82,230,224,.3)' }}>
+                      <span style={{ minWidth:0 }}>
+                        <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14 }}>{g.key}</span>
+                        {g.date && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.cyan, marginLeft:8 }}>{window.shortDate(g.date)}</span>}
+                        {g.layer==='WCG' && <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, marginLeft:6 }}>WCG</span>}
+                      </span>
+                      <span style={{ fontFamily:T.font.mono, fontSize:13, color: g.done===g.total&&g.total>0?T.color.green:T.color.steel200 }}>{g.done}/{g.total} set</span>
                     </div>
                   ))}
+                  {nextGroups.length===0 && <div style={{ fontSize:12, color:T.color.steel400 }}>Tagged embeds exist but no next-pour markup found — re-tag on the plan to attach a date.</div>}
                 </div>
               </>
             )}

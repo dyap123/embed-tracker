@@ -49,6 +49,7 @@ function PinDetail({ embed, seq, onClose, updateEmbed, isPhone, manager, onDelet
         <div style={{ display:'flex', gap:6, marginTop:12, flexWrap:'wrap' }}>
           <Badge color={STATE[st].color} fill={st==='installed'}>{STATE[st].label}</Badge>
           {embed.hasKnife && <Badge color={T.color.blue}>Knife plate</Badge>}
+          {embed.hasStub && <Badge color="#FF9650">Stub column</Badge>}
           <Badge color={T.color.steel300}>{embed.pour}</Badge>
         </div>
         {celebrate && <Celebrate />}
@@ -68,10 +69,14 @@ function PinDetail({ embed, seq, onClose, updateEmbed, isPhone, manager, onDelet
                 onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur(); }}
                 style={{ ...inputStyle, padding:'8px 10px', fontSize:13, fontFamily:T.font.mono }} />
             </Field>
-            <Field label="Type">
-              <Segmented size="sm" value={embed.hasKnife?'knife':'anchor'} onChange={v=>updateEmbed(embed.id,{ knifePlate:v==='knife' })}
-                options={[{value:'anchor',label:'Anchor rod'},{value:'knife',label:'Knife plate'}]} />
-            </Field>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+              <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, color:embed.hasKnife?T.color.blue:'#fff' }}>Knife plate</span>
+              <Toggle on={!!embed.hasKnife} onChange={()=>updateEmbed(embed.id,{ knifePlate:!embed.hasKnife })} />
+            </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+              <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, color:embed.hasStub?'#FF9650':'#fff' }}>Stub column</span>
+              <Toggle on={!!embed.hasStub} onChange={()=>updateEmbed(embed.id,{ stubColumn:!embed.hasStub })} />
+            </div>
           </div>
         )}
 
@@ -180,6 +185,8 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
   const [nextPour, setNextPour] = React.useState(!!zone.nextPour);
   const [assign, setAssign] = React.useState(!!zone.assign);
   const [color, setColor] = React.useState(zone.color || '126,120,240');
+  const [layer, setLayer] = React.useState(zone.layer || 'PWJV');
+  const [date, setDate] = React.useState(zone.date || '');
 
   const Tag = ({ on, set, c, title, sub }) => (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
@@ -202,8 +209,16 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
         </div>
         <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>Tag every embed inside this zone. Area &amp; sequence stay as-is unless you choose to reassign them.</p>
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Tag on={nextPour} set={setNextPour} c="255,111,181" title="Next pour" sub="Pink layer · flags everything inside as the next pour" />
+          <Tag on={nextPour} set={setNextPour} c="82,230,224" title="Next pour" sub="Cyan layer · flags everything inside as the next pour" />
           <Tag on={done} set={setDone} c="47,214,166" title="Pour complete" sub="Green layer · marks every embed inside installed" />
+
+          {/* layer + pour date */}
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+            <div style={{ flex:'1 1 130px' }}><Field label="Layer"><Segmented value={layer} onChange={setLayer} options={['PWJV','WCG']} /></Field></div>
+            <div style={{ flex:'1 1 130px' }}><Field label="Pour date">
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{ ...inputStyle, padding:'8px 10px', fontSize:13, colorScheme:'dark' }} />
+            </Field></div>
+          </div>
 
           {/* optional: reassign area + sequence */}
           <div style={{ borderTop:'1px solid '+T.color.line, paddingTop:14 }}>
@@ -227,7 +242,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
         <div style={{ display:'flex', gap:10, marginTop:22 }}>
           {onDelete && <Btn kind="danger" icon="trash" onClick={onDelete}>Delete</Btn>}
           <Btn kind="ghost" onClick={onCancel} style={{ marginLeft:onDelete?0:'auto' }}>Cancel</Btn>
-          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, phase, done, nextPour, assign, color })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
+          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, phase, done, nextPour, assign, color, layer, date })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
         </div>
       </Card>
     </div>
