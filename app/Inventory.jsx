@@ -15,7 +15,7 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
   const num = (r)=>({ qty: r.qty!=null?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0 });
   const tot = rows.reduce((a,r)=>{ const n=num(r); return { qty:a.qty+n.qty, pinned:a.pinned+n.pinned, inst:a.inst+n.inst }; }, {qty:0,pinned:0,inst:0});
   // per-mark × sequence breakdown
-  const SEQS = window.SEQUENCES || ['CUP','1','2','3','4'];
+  const SEQS = window.SEQUENCES || ['1','2','3','4'];
   const seqInfo = {}; window.embedsBySequence(embeds).marks.forEach(m=> seqInfo[m.mark]=m);
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
@@ -35,7 +35,7 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
               style={{ background:'transparent', border:'none', outline:'none', color:'#fff', fontFamily:T.font.mono, fontSize:12.5, width:isPhone?140:200 }} />
             {q && <button onClick={()=>setQ('')} style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
           </div>
-          <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('xlsx')}>Excel</Btn>
+          <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('csv')}>CSV</Btn>
           <Btn kind="navy" size="sm" icon="export" onClick={()=>expInv('pdf')}>PDF</Btn>
         </Header>
 

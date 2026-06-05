@@ -27,7 +27,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
-  const [place, setPlace] = React.useState({ knifePlate:false, sequence:'CUP', area:'A', mark:'' });
+  const [place, setPlace] = React.useState({ knifePlate:false, sequence:'1', phase:'1', area:'A', mark:'' });
   const [draft, setDraft] = React.useState(null);         // rect zone being dragged
   const [marq, setMarq] = React.useState(null);           // marquee selection rect
   const [poly, setPoly] = React.useState([]);             // polygon vertices in progress
@@ -99,7 +99,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (e.target.closest('button, input, textarea, select, a, [data-ui]')) return;
     const {x,y}=relXY(e); const f=toFrac(x,y);
     try{ vpRef.current.setPointerCapture(e.pointerId); }catch(err){}
-    if (drawMode==='pin'){ const key=onAddPin({ x:+f.fx.toFixed(4), y:+f.fy.toFixed(4), embedId:place.mark||'NEW', knifePlate:place.knifePlate, sequence:place.sequence, area:place.area });
+    if (drawMode==='pin'){ const key=onAddPin({ x:+f.fx.toFixed(4), y:+f.fy.toFixed(4), embedId:place.mark||'NEW', knifePlate:place.knifePlate, sequence:place.sequence, phase:place.phase, area:place.area });
       pushUndo({ type:'pinRemove', id:key }); return; }   // stay in placement mode
     if (drawMode==='rect'){ drawing.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy }; setDraft({ ...drawing.current }); return; }
     if (drawMode==='poly'){ setPoly(p=>[...p,[+f.fx.toFixed(4),+f.fy.toFixed(4)]]); return; }
@@ -181,9 +181,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); setSelZone(key); }
 
   // copy a selected embed → ⌘V drops into placement mode pre-filled with its settings
-  function copyEmbed(id){ const em=embeds.find(x=>x.id===id); if(em) clipEmbed.current={ mark:em.mark, knifePlate:!!em.hasKnife, sequence:em.sequence, area:em.area }; }
+  function copyEmbed(id){ const em=embeds.find(x=>x.id===id); if(em) clipEmbed.current={ mark:em.mark, knifePlate:!!em.hasKnife, sequence:em.sequence, phase:em.phase, area:em.area }; }
   function pasteEmbed(){ const c=clipEmbed.current; if(!c) return;
-    setPlace({ mark:c.mark||'', knifePlate:!!c.knifePlate, sequence:c.sequence||'CUP', area:c.area||'A' }); setDrawMode('pin'); }
+    setPlace({ mark:c.mark||'', knifePlate:!!c.knifePlate, sequence:c.sequence||'1', phase:c.phase||'1', area:c.area||'A' }); setDrawMode('pin'); }
 
   function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
   function deletePins(ids){ ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(e) pushUndo({ type:'pinRestore', id, data:rawPin(e) }); onRemovePin(id); }); setSelPins([]); setSelId(null); }
@@ -196,6 +196,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     function onKey(e){
       const t=e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       const meta=e.metaKey||e.ctrlKey;
+      // while drawing a polygon: ⌘Z / Delete removes the last point
+      if (drawMode==='poly' && poly.length>0 && ((meta && /^[zZ]$/.test(e.key)) || e.key==='Backspace' || e.key==='Delete')){
+        e.preventDefault(); setPoly(p=>p.slice(0,-1)); return; }
       if (meta && /^[zZ]$/.test(e.key)){ e.preventDefault(); doUndo(); }                         // undo (anyone)
       else if (meta && /^[aA]$/.test(e.key)){ e.preventDefault(); setSelPins(visible.map(em=>em.id)); setSelId(null); }
       else if (meta && /^[cC]$/.test(e.key)){ if(selId){ e.preventDefault(); copyEmbed(selId); } else if(manager && selZone){ e.preventDefault(); copyZone(selZone); } }
@@ -228,12 +231,12 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const pts = z.points ? z.points : rectToPoly(z);
     const ids = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts)).map(e=>e.id);
     const patch = {};
-    if (z.assign){ patch.area=z.area; patch.sequence=z.pour; patch.pour=`${z.area}·${z.pour==='CUP'?'CUP':'P'+z.pour}`; }  // only if asked
+    if (z.assign){ patch.area=z.area; patch.sequence=z.pour; patch.phase=z.phase||'1'; patch.pour=`${z.area}·P${z.pour}`; }  // only if asked
     patch.nextPour = !!z.nextPour;                         // tag / untag everything inside as the next pour
     if (z.done) patch.installed = true;
     bulkUpdate(ids, patch);
     const bb = bboxOf(pts);
-    const payload = { ...bb, area:z.area, pour:z.pour, count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
+    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
   }
@@ -293,11 +296,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {/* zone labels */}
           {renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240');
-            const lbl=z.done?'POUR DONE':z.nextPour?'NEXT POUR':`${z.area}·P${z.pour}`; return (
+            const n=embeds.filter(e=>pointInPoly(e.nx,e.ny,zonePts(z))).length;   // live count — updates as the grid/embeds change
+            const tag=z.done?'POUR DONE · ':z.nextPour?'NEXT POUR · ':'';
+            const lbl=`${tag}Sequence ${z.pour} · Phase ${z.phase||'1'} · Area ${z.area} · ${n} embeds`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
               <span style={{ position:'absolute', top:0, left:0, transform:`scale(${1/view.s})`, transformOrigin:'0 0',
                 background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
-                padding:'2px 6px', borderRadius:'4px 0 4px 0', whiteSpace:'nowrap' }}>{lbl} · {z.count||0}{z.done?' ✓':''}</span>
+                padding:'2px 6px', borderRadius:'4px 0 4px 0', whiteSpace:'nowrap' }}>{lbl}{z.done?' ✓':''}</span>
             </div>
           ); })}
 
@@ -368,6 +373,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               <Toggle on={place.knifePlate} onChange={()=>setPlace(p=>({...p,knifePlate:!p.knifePlate}))} />
             </div>
             <Field label="Sequence"><Segmented value={place.sequence} onChange={v=>setPlace(p=>({...p,sequence:v}))} options={SEQUENCES} /></Field>
+            <Field label="Phase"><Segmented value={place.phase} onChange={v=>setPlace(p=>({...p,phase:v}))} options={PHASES} /></Field>
             <Field label="Area"><Segmented value={place.area} onChange={v=>setPlace(p=>({...p,area:v}))} options={AREAS} /></Field>
             <Btn kind="primary" icon="check" style={{ marginTop:'auto' }} onClick={()=>setDrawMode('off')}>Done</Btn>
           </div>
@@ -399,7 +405,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
           background:'rgba(8,11,16,.6)', padding:'4px 9px', borderRadius:6, border:'1px solid '+T.color.line }}>
-          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER':(tool==='select'?' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT':' · DRAG TO PAN')}
+          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT':(tool==='select'?' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT':' · DRAG TO PAN')}
         </div>
 
         {sel && <PinDetail key={sel.id} embed={sel} seq={seq} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}

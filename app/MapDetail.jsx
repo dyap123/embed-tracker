@@ -75,14 +75,18 @@ function PinDetail({ embed, seq, onClose, updateEmbed, isPhone, manager, onDelet
           </div>
         )}
 
-        {/* sequence + area selectors */}
+        {/* sequence · phase · area selectors */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:14 }}>
           <Field label="Sequence">
-            <Segmented size="sm" value={embed.sequence} onChange={v=>updateEmbed(embed.id,{ sequence:v, pour:`${embed.area}·${v==='CUP'?'CUP':'P'+v}` })}
+            <Segmented size="sm" value={embed.sequence} onChange={v=>updateEmbed(embed.id,{ sequence:v, pour:`${embed.area}·P${v}` })}
               options={SEQUENCES.map(s=>({value:s,label:s}))} style={{ display:'flex', flexWrap:'wrap' }} />
           </Field>
+          <Field label="Phase">
+            <Segmented size="sm" value={embed.phase||'1'} onChange={v=>updateEmbed(embed.id,{ phase:v })}
+              options={PHASES.map(s=>({value:s,label:s}))} style={{ display:'flex', flexWrap:'wrap' }} />
+          </Field>
           <Field label="Area">
-            <Segmented size="sm" value={embed.area} onChange={v=>updateEmbed(embed.id,{ area:v, pour:`${v}·${embed.sequence==='CUP'?'CUP':'P'+embed.sequence}` })}
+            <Segmented size="sm" value={embed.area} onChange={v=>updateEmbed(embed.id,{ area:v, pour:`${v}·P${embed.sequence}` })}
               options={AREAS.map(a=>({value:a,label:a}))} />
           </Field>
         </div>
@@ -165,8 +169,9 @@ function Celebrate(){
 
 const ZONE_COLORS = [['126,120,240','Indigo'],['79,163,242','Blue'],['196,92,203','Magenta'],['242,176,76','Amber'],['240,85,107','Coral']];
 function ZoneEditor({ zone, onApply, onCancel, onDelete }){
-  const [area, setArea] = React.useState(zone.area || 'B');
-  const [pour, setPour] = React.useState(zone.pour || '2');
+  const [area, setArea] = React.useState(zone.area || 'A');
+  const [pour, setPour] = React.useState(zone.pour || '1');
+  const [phase, setPhase] = React.useState(zone.phase || '1');
   const [done, setDone] = React.useState(!!zone.done);
   const [nextPour, setNextPour] = React.useState(!!zone.nextPour);
   const [assign, setAssign] = React.useState(!!zone.assign);
@@ -198,10 +203,11 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 
           {/* optional: reassign area + sequence */}
           <div style={{ borderTop:'1px solid '+T.color.line, paddingTop:14 }}>
-            <Tag on={assign} set={setAssign} c="126,120,240" title="Set area & sequence" sub="Only if this zone should overwrite area/pour on the embeds inside" />
+            <Tag on={assign} set={setAssign} c="126,120,240" title="Set sequence · phase · area" sub="Only if this zone should overwrite the embeds inside" />
             {assign && <div style={{ display:'flex', flexDirection:'column', gap:14, marginTop:14 }}>
+              <Field label="Sequence"><Segmented value={pour} onChange={setPour} options={SEQUENCES} /></Field>
+              <Field label="Phase"><Segmented value={phase} onChange={setPhase} options={PHASES} /></Field>
               <Field label="Area"><Segmented value={area} onChange={setArea} options={AREAS} /></Field>
-              <Field label="Pour / sequence"><Segmented value={pour} onChange={setPour} options={SEQUENCES} /></Field>
             </div>}
           </div>
 
@@ -217,7 +223,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
         <div style={{ display:'flex', gap:10, marginTop:22 }}>
           {onDelete && <Btn kind="danger" icon="trash" onClick={onDelete}>Delete</Btn>}
           <Btn kind="ghost" onClick={onCancel} style={{ marginLeft:onDelete?0:'auto' }}>Cancel</Btn>
-          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, done, nextPour, assign, color })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
+          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, phase, done, nextPour, assign, color })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
         </div>
       </Card>
     </div>
@@ -228,7 +234,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 function NewPinEditor({ pos, onCreate, onCancel }){
   const [mark, setMark] = React.useState('');
   const [type, setType] = React.useState('anchor');
-  const [sequence, setSequence] = React.useState('CUP');
+  const [sequence, setSequence] = React.useState('1');
   const [area, setArea] = React.useState('A');
   return (
     <div data-ui style={{ position:'absolute', inset:0, background:'rgba(6,9,14,.55)', zIndex:40, display:'grid', placeItems:'center', padding:18 }}

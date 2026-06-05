@@ -38,7 +38,8 @@ const EMBED_TYPES = [
   { key:'coupler', code:'CP', label:'Coupler',     w:0.14 },
   { key:'stub',    code:'SC', label:'Stub column', w:0.10 },
 ];
-const SEQUENCES = ['CUP','1','2','3','4'];
+const SEQUENCES = ['1','2','3','4'];
+const PHASES = ['1','2','3','4'];
 const AREAS = ['A','B','C','D'];
 
 function pickWeighted(rng, items){ let r=rng(); for(const it of items){ if((r-=it.w)<=0) return it; } return items[items.length-1]; }
@@ -70,18 +71,15 @@ function buildEmbeds(){
       const code = tp.code;
       n[code] = (n[code]||0)+1;
       const id = `${code}-${String(n[code]).padStart(3,'0')}`;
-      // sequence: core (CUP) near middle rows, phasing outward
-      const band = ri/(GRID_ROWS.length-1);
-      let sequence;
-      if (band>0.40 && band<0.60 && ci>8 && ci<17) sequence='CUP';
-      else sequence = SEQUENCES[1 + Math.min(3, Math.floor(rng()*4))];
+      const sequence = SEQUENCES[Math.min(3, Math.floor(rng()*4))];
+      const phase = PHASES[Math.min(3, Math.floor(rng()*4))];
       const installed = rng() < AREA_PROGRESS[area];
       const hasKnife = tp.key==='knife' || rng() < 0.10;
       out.push({
         id, type: tp.key, typeLabel: tp.label, code,
         grid: `${GRID_COLS[ci]}-${GRID_ROWS[ri]}`,
         nx:+nx.toFixed(4), ny:+ny.toFixed(4),
-        sequence, area, pour: `${area}${sequence==='CUP'?'·CUP':'·P'+sequence}`,
+        sequence, phase, area, pour: `${area}·P${sequence}`,
         installed, hasKnife,
         installedAt: installed ? dayOffset(rng) : null,
         rfi: null,
@@ -162,7 +160,7 @@ function pinToEmbed(key, p){
   const [ci, ri] = gridIdx(p);
   const knife = !!p.knifePlate;                              // attribute: is there a knife plate at this anchor?
   const tp = EMBED_TYPES[0];                                 // every pin is an anchor bolt
-  const seq = p.sequence || 'CUP', area = p.area || areaFor(ci, ri);
+  const seq = p.sequence || '1', phase = p.phase || '1', area = p.area || areaFor(ci, ri);
   const at = p.installedAt ? (typeof p.installedAt==='number' ? new Date(p.installedAt).toISOString().slice(0,10) : p.installedAt) : null;
   // manually-placed pins (exact:true) land exactly where dropped; bulk-extracted pins snap to the grid
   const clamp01 = v => +Math.max(0,Math.min(1,v||0)).toFixed(4);
@@ -171,7 +169,7 @@ function pinToEmbed(key, p){
   return {
     id: key, mark: p.embedId || '—', type: tp.key, typeLabel: tp.label, code: tp.code,
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
-    sequence: seq, area, pour: p.pour || `${area}·${seq==='CUP'?'CUP':'P'+seq}`,
+    sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
     installed: !!p.installed, hasKnife: knife, nextPour: !!p.nextPour, installedAt: at, rfi: p.rfi || null,
   };
 }
@@ -207,6 +205,15 @@ function embedsBySequence(embeds){
 }
 window.embedsBySequence = embedsBySequence;
 
+/* ---- install summary by sequence (count placed / installed / remaining / %) ---- */
+function seqSummary(embeds){
+  const rows = SEQUENCES.map(s=>{ const list=embeds.filter(e=>e.sequence===s); const placed=list.length, installed=list.filter(e=>e.installed).length;
+    return { seq:s, placed, installed, remaining:placed-installed, pct: placed?Math.round(installed/placed*100):0 }; });
+  const t = rows.reduce((a,r)=>({ placed:a.placed+r.placed, installed:a.installed+r.installed }), { placed:0, installed:0 });
+  return { rows, total:{ ...t, remaining:t.placed-t.installed, pct: t.placed?Math.round(t.installed/t.placed*100):0 } };
+}
+window.seqSummary = seqSummary;
+
 // installed-over-time series (cumulative) for the dashboard chart
 function installSeries(embeds){
   const counts = {};
@@ -223,7 +230,7 @@ const POURS = [
 POURS.forEach(p=>{ p.embeds = EMBEDS.filter(e=>e.area===p.area && e.sequence===p.seq && !e.installed).length; });
 
 Object.assign(window, {
-  EMBEDS, CREW, INVENTORY, EMBED_TYPES, SEQUENCES, AREAS, GRID_COLS, GRID_ROWS, PLAN, POURS,
+  EMBEDS, CREW, INVENTORY, EMBED_TYPES, SEQUENCES, PHASES, AREAS, GRID_COLS, GRID_ROWS, PLAN, POURS,
   pinState, kpis, installSeries, colX, rowY,
   setGridCfg, gridCols, gridRows, gridPlan, cumFrac,
 });

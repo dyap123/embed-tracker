@@ -3,7 +3,7 @@ function Dashboard({ embeds, isPhone }){
   const k = kpis(embeds);
   const series = installSeries(embeds);
   const [toast, setToast] = React.useState(null);
-  function exp(kind){ const f = window.exportEmbeds(embeds, kind==='Excel'?'xlsx':'pdf'); if(f){ setToast(f); setTimeout(()=>setToast(null), 2600); } }
+  function exp(kind){ const f = window.exportEmbeds(embeds, kind); if(f){ setToast(f); setTimeout(()=>setToast(null), 2600); } }
 
   const byArea = AREAS.map(a=>{ const list=embeds.filter(e=>e.area===a); return { a, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
   const bySeq = SEQUENCES.map(s=>{ const list=embeds.filter(e=>e.sequence===s); return { s, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
@@ -13,8 +13,8 @@ function Dashboard({ embeds, isPhone }){
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
       <div className="ey-fade" style={{ maxWidth:1180, margin:'0 auto', padding:isPhone?'18px 14px 90px':'28px 30px 60px' }}>
         <Header title="Dashboard" sub="Embed install — live status">
-          <Btn kind="ghost" size="sm" icon="export" onClick={()=>exp('Excel')}>Excel</Btn>
-          <Btn kind="navy" size="sm" icon="export" onClick={()=>exp('PDF')}>PDF</Btn>
+          <Btn kind="ghost" size="sm" icon="export" onClick={()=>exp('csv')}>CSV</Btn>
+          <Btn kind="navy" size="sm" icon="export" onClick={()=>exp('pdf')}>PDF</Btn>
         </Header>
 
         {/* KPI tiles */}
@@ -64,7 +64,7 @@ function Dashboard({ embeds, isPhone }){
             </div>
           </Card>
           <Card pad={20} glow>
-            <ChartHead title="Install by sequence" note="installed vs remaining" />
+            <ChartHead title="Installed by sequence" note="installed / placed" />
             <SeqBars data={bySeq} />
           </Card>
         </div>
@@ -218,10 +218,11 @@ function SeqBars({ data }){
               border:'1px solid rgba(79,163,242,.35)', borderRadius:'6px 6px 0 0', position:'relative', transformOrigin:'bottom', animation:'growBar .8s ease both' }}>
               <div style={{ position:'absolute', bottom:0, left:0, right:0, height:(d.installed/d.pinned*100||0)+'%',
                 background:'linear-gradient(180deg,#2FD6A6,#1f9e7e)', borderRadius:'0 0 0 0', boxShadow:'0 0 14px -2px #2FD6A6' }} />
-              <span style={{ position:'absolute', top:-20, left:0, right:0, textAlign:'center', fontFamily:T.font.mono, fontSize:11, color:'#fff' }}>{d.installed}</span>
+              <span style={{ position:'absolute', top:-20, left:0, right:0, textAlign:'center', fontFamily:T.font.mono, fontSize:11.5, fontWeight:700, color:T.color.green }}>{d.installed}</span>
             </div>
           </div>
-          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:14, color:T.color.steel200 }}>{d.s}</span>
+          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5, color:T.color.steel200 }}>Seq {d.s}</span>
+          <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:-4 }}>{d.installed}/{d.pinned}</span>
         </div>
       ))}
     </div>

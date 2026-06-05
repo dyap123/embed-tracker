@@ -69,7 +69,7 @@ function App(){
   // ---- embed pin CRUD (manager, via plan editing) ----
   function addPin(p){ const key='P'+Math.random().toString(36).slice(2,9);
     window.fb.set('pins/'+key, { embedId:p.embedId||'NEW', x:+(p.x||0).toFixed(4), y:+(p.y||0).toFixed(4), exact:true,
-      sequence:p.sequence||'CUP', area:p.area||'A', knifePlate:!!p.knifePlate, installed:false, createdAt:Date.now() });
+      sequence:p.sequence||'1', phase:p.phase||'1', area:p.area||'A', knifePlate:!!p.knifePlate, installed:false, createdAt:Date.now() });
     track('edit'); return key; }
   function removePin(id){ const e=embeds.find(x=>x.id===id);
     if (e && e.installed){ const u=userRef.current; if(u&&u.id){ window.fb.inc('users/'+u.id+'/points',-10); window.fb.inc('users/'+u.id+'/installs',-1); } }
