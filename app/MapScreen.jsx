@@ -12,7 +12,7 @@ function zonePts(z){ return isPoly(z)? z.points : rectToPoly(z); }
 function bboxOf(pts){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; pts.forEach(([x,y])=>{ x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y); }); return { x:x0, y:y0, w:x1-x0, h:y1-y0 }; }
 function pointInPoly(px,py,pts){ let c=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const [xi,yi]=pts[i],[xj,yj]=pts[j]; if(((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) c=!c; } return c; }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, grid, onSaveGrid }){
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, onSaveGrid }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const [box, setBox] = React.useState({ w:1000, h:700 });
@@ -173,6 +173,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if(inv.type==='remove') onRemoveZone(inv.id);
     else if(inv.type==='set'){ inv.z?onRestoreZone(inv.id, inv.z):onRemoveZone(inv.id); }
     else if(inv.type==='pinRemove') onRemovePin(inv.id);
+    else if(inv.type==='pinRemoveMany') (inv.ids||[]).forEach(id=>onRemovePin(id));
     else if(inv.type==='pinRestore') onRestorePin(inv.id, inv.data);
     else if(inv.type==='pinMove') onMovePins(inv.moves); }
   function deleteZone(id){ const prev=zones.find(z=>z.id===id); if(!prev) return; pushUndo({ type:'set', id, z:prev }); onRemoveZone(id); setSelZone(null); setReshape(false); }
@@ -181,10 +182,26 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const payload=isPoly(z)?{ ...z, points:z.points.map(([x,y])=>[+(x+off).toFixed(4),+(y+off).toFixed(4)]), x:z.x+off, y:z.y+off }:{ ...z, x:(z.x||0)+off, y:(z.y||0)+off };
     const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); setSelZone(key); }
 
-  // copy a selected embed → ⌘V drops into placement mode pre-filled with its settings
-  function copyEmbed(id){ const em=embeds.find(x=>x.id===id); if(em) clipEmbed.current={ mark:em.mark, knifePlate:!!em.hasKnife, sequence:em.sequence, phase:em.phase, area:em.area }; }
-  function pasteEmbed(){ const c=clipEmbed.current; if(!c) return;
-    setPlace({ mark:c.mark||'', knifePlate:!!c.knifePlate, sequence:c.sequence||'1', phase:c.phase||'1', area:c.area||'A' }); setDrawMode('pin'); }
+  // copy selection → single embed drops into placement mode; a group duplicates in place
+  function copyEmbeds(){
+    if (selPins.length>0){
+      const items = selPins.map(id=>embeds.find(x=>x.id===id)).filter(Boolean)
+        .map(e=>({ mark:e.mark, knifePlate:!!e.hasKnife, sequence:e.sequence, phase:e.phase, area:e.area, nx:e.nx, ny:e.ny }));
+      clipEmbed.current = { multi:true, items };
+    } else if (selId){
+      const e=embeds.find(x=>x.id===selId); if(e) clipEmbed.current={ multi:false, items:[{ mark:e.mark, knifePlate:!!e.hasKnife, sequence:e.sequence, phase:e.phase, area:e.area }] };
+    }
+  }
+  function pasteEmbeds(){
+    const c=clipEmbed.current; if(!c || !c.items || !c.items.length) return;
+    if (c.multi){
+      const off=0.02, keys=[];
+      c.items.forEach(it=>{ const key=onAddPin({ x:(it.nx||0)+off, y:(it.ny||0)+off, embedId:it.mark||'NEW', knifePlate:it.knifePlate, sequence:it.sequence, phase:it.phase, area:it.area }); keys.push(key); });
+      pushUndo({ type:'pinRemoveMany', ids:keys }); setSelPins(keys); setSelId(null);
+    } else {
+      const it=c.items[0]; setPlace({ mark:it.mark||'', knifePlate:!!it.knifePlate, sequence:it.sequence||'1', phase:it.phase||'1', area:it.area||'A' }); setDrawMode('pin');
+    }
+  }
 
   function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
   function deletePins(ids){ ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(e) pushUndo({ type:'pinRestore', id, data:rawPin(e) }); onRemovePin(id); }); setSelPins([]); setSelId(null); }
@@ -202,8 +219,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         e.preventDefault(); setPoly(p=>p.slice(0,-1)); return; }
       if (meta && /^[zZ]$/.test(e.key)){ e.preventDefault(); doUndo(); }                         // undo (anyone)
       else if (meta && /^[aA]$/.test(e.key)){ e.preventDefault(); setSelPins(visible.map(em=>em.id)); setSelId(null); }
-      else if (meta && /^[cC]$/.test(e.key)){ if(selId){ e.preventDefault(); copyEmbed(selId); } else if(manager && selZone){ e.preventDefault(); copyZone(selZone); } }
-      else if (meta && /^[vV]$/.test(e.key)){ if(clipEmbed.current){ e.preventDefault(); pasteEmbed(); } else if(manager){ e.preventDefault(); pasteZone(); } }
+      else if (meta && /^[cC]$/.test(e.key)){ if(selPins.length||selId){ e.preventDefault(); copyEmbeds(); } else if(manager && selZone){ e.preventDefault(); copyZone(selZone); } }
+      else if (meta && /^[vV]$/.test(e.key)){ if(clipEmbed.current){ e.preventDefault(); pasteEmbeds(); } else if(manager){ e.preventDefault(); pasteZone(); } }
       else if (manager && (e.key==='Delete'||e.key==='Backspace')){
         if(selPins.length){ e.preventDefault(); requestDeletePins(selPins); }
         else if(selZone){ e.preventDefault(); deleteZone(selZone); } }
@@ -269,7 +286,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
                 <g key={z.id}>
                   <polygon data-zone points={dpts} fill={`rgba(${gc},${z.done?0.20:0.12})`}
                     stroke={`rgba(${gc},${on?1:0.9})`} strokeWidth={on?swU*1.6:swU} strokeDasharray={z.done?'none':`${swU*3} ${swU*3}`}
-                    style={{ pointerEvents: manager?'auto':'none', cursor: manager?'move':'default' }}
+                    style={{ pointerEvents: (manager && drawMode==='off')?'auto':'none', cursor: manager?'move':'default' }}
                     onPointerDown={manager?(e)=>{ e.stopPropagation(); try{vpRef.current.setPointerCapture(e.pointerId);}catch(_){}
                       setSelZone(z.id); const r=relXY(e); const f=toFrac(r.x,r.y); sdrag.current={ id:z.id, base:{...z, points:isPoly(z)?z.points:undefined}, fx:f.fx, fy:f.fy }; }:undefined}
                     onDoubleClick={manager?(e)=>{ e.stopPropagation(); setEditZone({ ...z, _new:false }); }:undefined} />
@@ -384,6 +401,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:8,
             background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.cyan, borderRadius:T.radius.pill, padding:'6px 8px 6px 14px', boxShadow:T.shadow.card }}>
             <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5 }}>{selPins.length} selected</span>
+            <Btn size="sm" kind="primary" icon="check" onClick={()=>onBulkInstall(selPins, true)}>Mark done</Btn>
+            <Btn size="sm" kind="ghost" icon="close" onClick={()=>onBulkInstall(selPins, false)}>Un-install</Btn>
+            <Btn size="sm" kind="ghost" icon="layers" onClick={()=>copyEmbeds()}>Copy</Btn>
             {manager && <Btn size="sm" kind="danger" icon="trash" onClick={()=>requestDeletePins(selPins)}>Delete</Btn>}
             <Btn size="sm" kind="ghost" icon="close" onClick={()=>setSelPins([])}>Clear</Btn>
           </div>

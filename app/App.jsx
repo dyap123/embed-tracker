@@ -65,6 +65,12 @@ function App(){
     track(kind);
   }
   function bulkUpdate(ids, patch){ ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('zone'); }
+  // mark a group installed / to-install (credits points for the net change, one toast)
+  function bulkInstall(ids, val){ const u=userRef.current; let d=0;
+    ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(!e || !!e.installed===!!val) return;
+      window.fb.update('pins/'+id, { installed:!!val, installedAt: val?today():null }); d += val?1:-1; });
+    if(u&&u.id && d){ window.fb.inc('users/'+u.id+'/points', d*10); window.fb.inc('users/'+u.id+'/installs', d); }
+    flash(remarkFor(val?'install':'uninstall')); }
 
   // ---- embed pin CRUD (manager, via plan editing) ----
   function addPin(p){ const key='P'+Math.random().toString(36).slice(2,9);
@@ -95,7 +101,7 @@ function App(){
   const screenEl = {
     map: <MapScreen embeds={embeds} updateEmbed={updateEmbed} bulkUpdate={bulkUpdate} user={user} isPhone={isPhone}
             zones={zones} onAddZone={addZone} onUpdateZone={updateZone} onRemoveZone={removeZone} onRestoreZone={restoreZone}
-            onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} onMovePins={movePins} grid={grid} onSaveGrid={saveGrid} />,
+            onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} onMovePins={movePins} onBulkInstall={bulkInstall} grid={grid} onSaveGrid={saveGrid} />,
     dashboard: <Dashboard embeds={embeds} isPhone={isPhone} />,
     inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }} canEdit={!!user.manager} />,
