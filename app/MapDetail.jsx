@@ -167,7 +167,11 @@ function Celebrate(){
   );
 }
 
-const ZONE_COLORS = [['126,120,240','Indigo'],['79,163,242','Blue'],['196,92,203','Magenta'],['242,176,76','Amber'],['240,85,107','Coral']];
+const ZONE_COLORS = [
+  ['126,120,240','Indigo'],['79,163,242','Blue'],['82,230,224','Teal'],
+  ['170,220,70','Lime'],['245,194,75','Gold'],['255,150,60','Orange'],
+  ['196,92,203','Magenta'],['240,85,107','Coral'],['151,166,200','Steel'],
+];
 function ZoneEditor({ zone, onApply, onCancel, onDelete }){
   const [area, setArea] = React.useState(zone.area || 'A');
   const [pour, setPour] = React.useState(zone.pour || '1');
@@ -213,7 +217,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 
           {!nextPour && !done && (
             <Field label="Highlight color">
-              <div style={{ display:'flex', gap:8 }}>{ZONE_COLORS.map(([c,name])=>(
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>{ZONE_COLORS.map(([c,name])=>(
                 <button key={c} title={name} onClick={()=>setColor(c)} style={{ width:30, height:30, borderRadius:8, cursor:'pointer',
                   background:`rgba(${c},.9)`, border:'2px solid '+(color===c?'#fff':'transparent'), boxShadow:color===c?`0 0 0 2px rgba(${c},.6)`:'none' }} />
               ))}</div>
