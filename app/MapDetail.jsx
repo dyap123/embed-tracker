@@ -98,7 +98,7 @@ function PinDetail({ embed, seq, onClose, updateEmbed, isPhone, manager, onDelet
           <div>
             <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:17, textTransform:'uppercase', letterSpacing:'.03em' }}>Install</div>
             <div style={{ fontSize:12, color:T.color.steel300, marginTop:2 }}>
-              {embed.installed? `Cast & set · ${embed.installedAt}` : 'Mark when cast into concrete'}</div>
+              {embed.installed? `Cast & set · ${embed.installedAt||'—'}${embed.installedBy?' · by '+embed.installedBy:''}` : 'Mark when cast into concrete'}</div>
           </div>
           <Toggle on={embed.installed} onChange={toggleInstall} />
         </div>

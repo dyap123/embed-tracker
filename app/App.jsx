@@ -56,9 +56,9 @@ function App(){
     let kind = 'edit';
     if ('installed' in p){
       kind = p.installed ? 'install' : 'uninstall';
-      if (p.installed && !p.installedAt) p.installedAt = today();
-      if (!p.installed) p.installedAt = null;
       const u=userRef.current;
+      if (p.installed){ if(!p.installedAt) p.installedAt = today(); p.installedBy = u? u.name : null; }
+      else { p.installedAt = null; p.installedBy = null; }
       if (u&&u.id){ window.fb.inc('users/'+u.id+'/points', p.installed?10:-10); window.fb.inc('users/'+u.id+'/installs', p.installed?1:-1); }
     } else if ('rfi' in p){ kind = 'rfi'; }
     window.fb.update('pins/'+id, p);
@@ -68,7 +68,7 @@ function App(){
   // mark a group installed / to-install (credits points for the net change, one toast)
   function bulkInstall(ids, val){ const u=userRef.current; let d=0;
     ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(!e || !!e.installed===!!val) return;
-      window.fb.update('pins/'+id, { installed:!!val, installedAt: val?today():null }); d += val?1:-1; });
+      window.fb.update('pins/'+id, { installed:!!val, installedAt: val?today():null, installedBy: val?(u?u.name:null):null }); d += val?1:-1; });
     if(u&&u.id && d){ window.fb.inc('users/'+u.id+'/points', d*10); window.fb.inc('users/'+u.id+'/installs', d); }
     flash(remarkFor(val?'install':'uninstall')); }
 

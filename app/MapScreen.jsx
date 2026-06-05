@@ -251,8 +251,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const patch = {};
     if (z.assign){ patch.area=z.area; patch.sequence=z.pour; patch.phase=z.phase||'1'; patch.pour=`${z.area}·P${z.pour}`; }  // only if asked
     patch.nextPour = !!z.nextPour;                         // tag / untag everything inside as the next pour
-    if (z.done) patch.installed = true;
     bulkUpdate(ids, patch);
+    if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
     const bb = bboxOf(pts);
     const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }

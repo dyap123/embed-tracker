@@ -173,7 +173,7 @@ function pinToEmbed(key, p){
     id: key, mark: p.embedId || '—', type: tp.key, typeLabel: tp.label, code: tp.code,
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
     sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
-    installed: !!p.installed, hasKnife: knife, nextPour: !!p.nextPour, installedAt: at, rfi: p.rfi || null,
+    installed: !!p.installed, hasKnife: knife, nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
   };
 }
 

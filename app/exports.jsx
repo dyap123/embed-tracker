@@ -25,7 +25,7 @@
         Mark:e.mark||'', Type:e.typeLabel||(e.hasKnife?'Knife plate':'Anchor rod'),
         'Knife Plate':e.hasKnife?'Yes':'No', Grid:e.grid||'',
         Sequence:e.sequence||'', Phase:e.phase||'', Area:e.area||'',
-        Installed:e.installed?'Yes':'No', 'Installed On':e.installedAt||'',
+        Installed:e.installed?'Yes':'No', 'Installed On':e.installedAt||'', 'Installed By':e.installedBy||'',
         RFI:e.rfi?e.rfi.number:'', 'RFI Status':e.rfi?e.rfi.status:'',
       }));
   }
