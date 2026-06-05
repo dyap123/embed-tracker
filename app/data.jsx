@@ -38,9 +38,12 @@ const EMBED_TYPES = [
   { key:'coupler', code:'CP', label:'Coupler',     w:0.14 },
   { key:'stub',    code:'SC', label:'Stub column', w:0.10 },
 ];
-const SEQUENCES = ['1','2','3','4'];
+const SEQUENCES = ['1','2','3','4','South Hall'];
 const PHASES = ['1','2','3','4'];
 const AREAS = ['A','B','C','D'];
+// numeric sequences read "Seq 3"; named ones (South Hall) show as-is
+function seqLabel(s){ return s && /^\d+$/.test(String(s)) ? 'Seq '+s : (s||''); }
+window.seqLabel = seqLabel;
 
 function pickWeighted(rng, items){ let r=rng(); for(const it of items){ if((r-=it.w)<=0) return it; } return items[items.length-1]; }
 
@@ -71,7 +74,7 @@ function buildEmbeds(){
       const code = tp.code;
       n[code] = (n[code]||0)+1;
       const id = `${code}-${String(n[code]).padStart(3,'0')}`;
-      const sequence = SEQUENCES[Math.min(3, Math.floor(rng()*4))];
+      const sequence = SEQUENCES[Math.floor(rng()*SEQUENCES.length)];
       const phase = PHASES[Math.min(3, Math.floor(rng()*4))];
       const installed = rng() < AREA_PROGRESS[area];
       const hasKnife = tp.key==='knife' || rng() < 0.10;

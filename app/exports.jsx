@@ -37,7 +37,7 @@
   function seqMatrix(embeds){
     if(!window.embedsBySequence) return null;
     const { seqs, marks, seqTotals } = window.embedsBySequence(embeds);
-    const head = ['Mark', ...seqs.map(s=>'Seq '+s), 'Total', 'Installed'];
+    const SL=window.seqLabel||(s=>'Seq '+s); const head = ['Mark', ...seqs.map(SL), 'Total', 'Installed'];
     const body = marks.map(m=> [m.mark, ...seqs.map(s=> (m.seq[s]||{}).pinned||0), m.total, m.inst]);
     const totalRow = ['TOTAL', ...seqs.map(s=> seqTotals[s].pinned), marks.reduce((a,m)=>a+m.total,0), marks.reduce((a,m)=>a+m.inst,0)];
     return { head, body, totalRow };
@@ -45,7 +45,7 @@
   // embed COUNT by sequence + INSTALLED + remaining + %
   function seqSummaryRows(embeds){
     const ss = window.seqSummary ? window.seqSummary(embeds) : null; if(!ss) return null;
-    const rows = ss.rows.map(r=>({ Sequence:'Seq '+r.seq, Placed:r.placed, Installed:r.installed, Remaining:r.remaining, 'Complete %':r.pct+'%' }));
+    const SL=window.seqLabel||(s=>'Seq '+s); const rows = ss.rows.map(r=>({ Sequence:SL(r.seq), Placed:r.placed, Installed:r.installed, Remaining:r.remaining, 'Complete %':r.pct+'%' }));
     rows.push({ Sequence:'TOTAL', Placed:ss.total.placed, Installed:ss.total.installed, Remaining:ss.total.remaining, 'Complete %':ss.total.pct+'%' });
     return rows;
   }
@@ -131,7 +131,7 @@
   function exportInventory(rows, kind, seqs){
     const fname=`EmbedYap_Inventory_${stamp()}`;
     const SQ = seqs || [];
-    const data=rows.map(r=>{ const sc={}; SQ.forEach(s=>{ const c=(r.seq&&r.seq[s])||{pinned:0,inst:0}; sc['Seq '+s]=c.pinned; });
+    const data=rows.map(r=>{ const sc={}; SQ.forEach(s=>{ const c=(r.seq&&r.seq[s])||{pinned:0,inst:0}; sc[(window.seqLabel?window.seqLabel(s):'Seq '+s)]=c.pinned; });
       return { Mark:r.id, Description:r.desc||'', Qty:r.qty, Placed:r.pinned, Installed:r.inst, Remaining:r.remaining, 'Complete %':r.pct+'%',
         ...sc, '# Bolts':r.bolts!=null?r.bolts:'', Plate:r.plate||'', 'Length (in)':r.len!=null?r.len:'', Supplier:r.supplier||'' }; });
 

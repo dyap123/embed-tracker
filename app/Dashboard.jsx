@@ -7,7 +7,11 @@ function Dashboard({ embeds, isPhone }){
 
   const byArea = AREAS.map(a=>{ const list=embeds.filter(e=>e.area===a); return { a, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
   const bySeq = SEQUENCES.map(s=>{ const list=embeds.filter(e=>e.sequence===s); return { s, pinned:list.length, installed:list.filter(e=>e.installed).length }; });
-  const pours = POURS.map(p=>({ ...p, embeds: embeds.filter(e=>e.area===p.area && e.sequence===p.seq && !e.installed).length }));
+  // next pour = embeds tagged on the plan (zone "Next pour" toggle)
+  const nextPins = embeds.filter(e=>e.nextPour);
+  const nextRemaining = nextPins.filter(e=>!e.installed).length;
+  const ngMap = {}; nextPins.forEach(e=>{ const key=`${seqLabel(e.sequence)} · Ph ${e.phase||'1'} · ${e.area}`; const g=ngMap[key]||(ngMap[key]={total:0,inst:0}); g.total++; if(e.installed) g.inst++; });
+  const nextGroups = Object.entries(ngMap).map(([k,v])=>({ k, ...v })).sort((a,b)=>a.k.localeCompare(b.k, undefined, {numeric:true}));
 
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
@@ -26,36 +30,10 @@ function Dashboard({ embeds, isPhone }){
           <Kpi label="Open RFIs" value={k.openRFI} sub="needs answer" accent={T.color.red} />
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns: isPhone?'1fr':'1.6fr 1fr', gap:14, marginTop:14 }}>
-          <Card pad={20} glow>
-            <ChartHead title="Installed over time" note={`${series.length} pour days · cumulative`} />
-            <AreaChart series={series} total={k.pinned} />
-          </Card>
-          <Card pad={20} glow>
-            <ChartHead title="Next pour" note="upcoming windows" />
-            <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:12 }}>
-              {pours.map((p,i)=>(
-                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 13px', borderRadius:T.radius.md,
-                  background: i===0?'linear-gradient(180deg,rgba(255,138,40,.12),rgba(255,138,40,.03))':'rgba(0,0,0,.2)',
-                  border:'1px solid '+(i===0?'rgba(255,138,40,.35)':T.color.line) }}>
-                  <div style={{ textAlign:'center', minWidth:42 }}>
-                    <div style={{ fontFamily:T.font.display, fontWeight:800, fontSize:22, lineHeight:1, color: i===0?T.color.amberHot:'#fff' }}>{p.date.slice(8)}</div>
-                    <div style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>JUN</div>
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5 }}>{p.label}</div>
-                    <div style={{ fontSize:12, color:T.color.steel300 }}>{p.embeds} embeds to set</div>
-                  </div>
-                  {i===0 && <Badge color={T.color.amber} fill>Next</Badge>}
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-
+        {/* by area + by sequence */}
         <div style={{ display:'grid', gridTemplateColumns: isPhone?'1fr':'1fr 1fr', gap:14, marginTop:14 }}>
           <Card pad={20} glow>
-            <ChartHead title="Install by area" note="installed / pinned" />
+            <ChartHead title="Install by area" note="installed / placed" />
             <div style={{ display:'flex', flexDirection:'column', gap:13, marginTop:14 }}>
               {byArea.map(r=>(
                 <BarRow key={r.a} label={'Area '+r.a} value={r.installed} max={r.pinned}
@@ -66,6 +44,38 @@ function Dashboard({ embeds, isPhone }){
           <Card pad={20} glow>
             <ChartHead title="Installed by sequence" note="installed / placed" />
             <SeqBars data={bySeq} />
+          </Card>
+        </div>
+
+        {/* installed over time + next pour */}
+        <div style={{ display:'grid', gridTemplateColumns: isPhone?'1fr':'1.6fr 1fr', gap:14, marginTop:14 }}>
+          <Card pad={20} glow>
+            <ChartHead title="Installed over time" note={`${series.length} pour days · cumulative`} />
+            <AreaChart series={series} total={k.pinned} />
+          </Card>
+          <Card pad={20} glow>
+            <ChartHead title="Next pour" note="tagged on the plan" />
+            {nextPins.length===0 ? (
+              <div style={{ marginTop:16, fontSize:13, color:T.color.steel400, lineHeight:1.55 }}>
+                No next pour tagged yet. On the <b style={{color:'#fff'}}>Plan</b>, draw a markup and turn on <b style={{color:T.color.pink}}>Next pour</b> to flag the embeds for the upcoming pour.
+              </div>
+            ) : (
+              <>
+                <div style={{ display:'flex', alignItems:'baseline', gap:10, marginTop:12 }}>
+                  <span style={{ fontFamily:T.font.display, fontWeight:800, fontSize:40, lineHeight:.9, color:T.color.pink }}>{nextRemaining}</span>
+                  <span style={{ fontSize:13, color:T.color.steel300 }}>embeds to set<br/><span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>{nextPins.length} tagged total</span></span>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:14 }}>
+                  {nextGroups.map(g=>(
+                    <div key={g.k} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 12px', borderRadius:T.radius.md,
+                      background:'rgba(255,111,181,.08)', border:'1px solid rgba(255,111,181,.3)' }}>
+                      <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14 }}>{g.k}</span>
+                      <span style={{ fontFamily:T.font.mono, fontSize:13, color: g.inst===g.total?T.color.green:T.color.steel200 }}>{g.inst}/{g.total} set</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </Card>
         </div>
 
@@ -186,7 +196,7 @@ function SeqMatrix({ embeds, isPhone }){
     <div style={{ marginTop:12, maxHeight:340, overflow:'auto' }}>
       <div style={{ display:'grid', gridTemplateColumns:cols, alignItems:'center', borderBottom:'1px solid '+T.color.line, position:'sticky', top:0, background:steelPlate('#161D29','#10151E'), zIndex:1 }}>
         <span style={{ ...head, textAlign:'left', paddingLeft:20 }}>Mark</span>
-        {seqs.map(s=><span key={s} style={head}>{s==='CUP'?'CUP':'Seq '+s}</span>)}
+        {seqs.map(s=><span key={s} style={head}>{seqLabel(s)}</span>)}
         <span style={{ ...head, paddingRight:16 }}>Total</span>
       </div>
       {marks.map((m,i)=>(
@@ -221,7 +231,7 @@ function SeqBars({ data }){
               <span style={{ position:'absolute', top:-20, left:0, right:0, textAlign:'center', fontFamily:T.font.mono, fontSize:11.5, fontWeight:700, color:T.color.green }}>{d.installed}</span>
             </div>
           </div>
-          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5, color:T.color.steel200 }}>Seq {d.s}</span>
+          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5, color:T.color.steel200, textAlign:'center', lineHeight:1.05 }}>{seqLabel(d.s)}</span>
           <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:-4 }}>{d.installed}/{d.pinned}</span>
         </div>
       ))}

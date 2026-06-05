@@ -26,6 +26,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
+  const [showZones, setShowZones] = React.useState(true);   // show/hide markups (highlights)
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, sequence:'1', phase:'1', area:'A', mark:'' });
   const [draft, setDraft] = React.useState(null);         // rect zone being dragged
@@ -247,7 +248,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,
+      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,showZones,setShowZones,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -262,7 +263,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
-            {renderZones.map(z=>{
+            {showZones && renderZones.map(z=>{
               const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
@@ -294,14 +295,14 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </svg>
 
           {/* zone labels */}
-          {renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+          {showZones && renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240');
             const n=embeds.filter(e=>pointInPoly(e.nx,e.ny,zonePts(z))).length;   // live count — updates as the grid/embeds change
-            const lbl=`${z.nextPour?'NEXT · ':''}Seq ${z.pour} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.done?' ✓':''}`; return (
+            const lbl=`${z.nextPour?'NEXT · ':''}${seqLabel(z.pour)} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.done?' ✓':''}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
-              <span style={{ position:'absolute', top:0, left:0, transform:`scale(${1/view.s})`, transformOrigin:'0 0',
-                background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
-                padding:'2px 6px', borderRadius:'4px 0 4px 0', whiteSpace:'nowrap' }}>{lbl}{z.done?' ✓':''}</span>
+              <span style={{ position:'absolute', top:0, left:0, transform:`scale(${Math.max(0.5, Math.min(1.05, 1/view.s))})`, transformOrigin:'0 0',
+                background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:8.5, fontWeight:700,
+                padding:'1px 5px', borderRadius:'3px 0 3px 0', whiteSpace:'nowrap' }}>{lbl}</span>
             </div>
           ); })}
 
@@ -438,7 +439,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,showZones,setShowZones,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   return (
     <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', flexWrap:'wrap',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#141A24','#0E131B'), position:'relative', zIndex:6 }}>
@@ -482,6 +483,7 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>
           <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={()=>setGridMode(g=>!g)}>Grid</Btn>
         </>}
+        <button onClick={()=>setShowZones(s=>!s)} title={showZones?'Hide markups':'Show markups'} style={{ ...zbtn, width:32, height:30, background:showZones?'rgba(126,120,240,.18)':'rgba(0,0,0,.3)', border:'1px solid '+(showZones?'rgba(126,120,240,.5)':T.color.line), color:showZones?T.color.amberHot:T.color.steel400 }}><Icon name={showZones?'eye':'eyeOff'} size={16}/></button>
         <button onClick={toggleFull} title={full?'Exit full screen':'Full screen'} style={{ ...zbtn, width:32, height:30, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line }}><Icon name={full?'minimize':'maximize'} size={16}/></button>
         <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,.3)', borderRadius:T.radius.md, padding:3, border:'1px solid '+T.color.line }}>
           <button onClick={zoomOut} style={zbtn}><Icon name="minus" size={16}/></button>

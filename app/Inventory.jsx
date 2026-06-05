@@ -61,7 +61,7 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>Seq {r.seq||'—'}{r.plate?' · '+r.plate:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
@@ -105,7 +105,7 @@ function SeqBreakdown({ info, seqs }){
           return (
             <div key={s} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 11px', borderRadius:T.radius.pill,
               background: c.pinned?'rgba(126,120,240,.12)':'rgba(0,0,0,.2)', border:'1px solid '+(c.pinned?'rgba(126,120,240,.4)':T.color.line) }}>
-              <span style={{ fontFamily:T.font.mono, fontSize:10.5, letterSpacing:'.08em', color:T.color.steel300 }}>{s==='CUP'?'CUP':'SEQ '+s}</span>
+              <span style={{ fontFamily:T.font.mono, fontSize:10.5, letterSpacing:'.08em', color:T.color.steel300 }}>{seqLabel(s)}</span>
               <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13, color: c.pinned?(done?T.color.green:'#fff'):T.color.steel600 }}>{c.inst}/{c.pinned}</span>
             </div>
           ); })}
