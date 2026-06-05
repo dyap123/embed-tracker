@@ -1,7 +1,10 @@
 /* EmbedYap — Inventory by embed MARK (201A, 218A…) with editable per-type info */
-function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
+function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, canEdit }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
+  const [adding, setAdding] = React.useState(false);
+  const [newMark, setNewMark] = React.useState('');
+  const [newDesc, setNewDesc] = React.useState('');
 
   // build a row per mark from the master (types) + live pins
   const byMark = {};
@@ -35,9 +38,24 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
               style={{ background:'transparent', border:'none', outline:'none', color:'#fff', fontFamily:T.font.mono, fontSize:12.5, width:isPhone?140:200 }} />
             {q && <button onClick={()=>setQ('')} style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
           </div>
+          {canEdit && <Btn kind="ghost" size="sm" icon="bolt" onClick={()=>onSyncQtys && onSyncQtys()} title="Set every type's quantity to its current placed count on the plan">Sync to map</Btn>}
+          {canEdit && <Btn kind="ghost" size="sm" icon="plus" onClick={()=>setAdding(a=>!a)}>Add type</Btn>}
           <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('csv')}>CSV</Btn>
           <Btn kind="navy" size="sm" icon="export" onClick={()=>expInv('pdf')}>PDF</Btn>
         </Header>
+
+        {adding && canEdit && (
+          <Card pad={14} glow style={{ marginTop:14, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <input autoFocus value={newMark} onChange={e=>setNewMark(e.target.value)} placeholder="Mark (e.g. 201A)"
+              onKeyDown={e=>{ if(e.key==='Enter' && newMark.trim()){ onAddType(newMark.trim(), { desc:newDesc.trim() }); setNewMark(''); setNewDesc(''); setAdding(false); } }}
+              style={{ ...inputStyle, width:140, fontFamily:T.font.mono, fontSize:13, padding:'8px 10px' }} />
+            <input value={newDesc} onChange={e=>setNewDesc(e.target.value)} placeholder="Description (optional)"
+              style={{ ...inputStyle, flex:'1 1 200px', fontSize:13, padding:'8px 10px' }} />
+            <Btn kind="primary" size="sm" icon="check" disabled={!newMark.trim()}
+              onClick={()=>{ if(newMark.trim()){ onAddType(newMark.trim(), { desc:newDesc.trim() }); setNewMark(''); setNewDesc(''); setAdding(false); } }}>Add</Btn>
+            <Btn kind="ghost" size="sm" onClick={()=>{ setAdding(false); setNewMark(''); setNewDesc(''); }}>Cancel</Btn>
+          </Card>
+        )}
 
         <Card pad={0} glow style={{ marginTop:18 }}>
           {!isPhone && (
@@ -78,7 +96,7 @@ function Inventory({ embeds, isPhone, types, onEditType, canEdit }){
                   </div>
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
-                {isOpen && <><SeqBreakdown info={seqInfo[r.id]} seqs={SEQS} /><TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} /></>}
+                {isOpen && <><SeqBreakdown info={seqInfo[r.id]} seqs={SEQS} /><TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} /></>}
               </div>
             );
           })}
@@ -115,7 +133,7 @@ function SeqBreakdown({ info, seqs }){
 }
 
 /* expandable per-type editor — input info for each embed mark */
-function TypeEditor({ row, qty, canEdit, onSave }){
+function TypeEditor({ row, qty, canEdit, onSave, onDelete }){
   const F = ({ k, label, type='text', w }) => (
     <label style={{ display:'flex', flexDirection:'column', gap:5, width:w||'auto', flex:w?'none':'1 1 120px' }}>
       <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>{label}</span>
@@ -141,6 +159,9 @@ function TypeEditor({ row, qty, canEdit, onSave }){
           style={{ ...inputStyle, padding:'8px 10px', fontSize:13, resize:'vertical', opacity:canEdit?1:.6 }} />
       </label>
       {!canEdit && <div style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400, marginTop:8 }}>Sign in as a manager to edit type info.</div>}
+      {canEdit && onDelete && <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
+        <Btn kind="danger" size="sm" icon="trash" onClick={()=>{ if(confirm('Delete embed type '+row.id+'? Pins already on the plan stay; only the type record is removed.')) onDelete(); }}>Delete type</Btn>
+      </div>}
     </div>
   );
 }

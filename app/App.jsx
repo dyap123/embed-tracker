@@ -103,8 +103,12 @@ function App(){
             zones={zones} onAddZone={addZone} onUpdateZone={updateZone} onRemoveZone={removeZone} onRestoreZone={restoreZone}
             onAddPin={addPin} onRemovePin={removePin} onRestorePin={restorePin} onMovePins={movePins} onBulkInstall={bulkInstall} grid={grid} onSaveGrid={saveGrid} />,
     dashboard: <Dashboard embeds={embeds} isPhone={isPhone} />,
-    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master}
-                 onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }} canEdit={!!user.manager} />,
+    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager}
+                 onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}
+                 onAddType={(id,patch)=>{ if(id) { window.fb.set('embeds/'+id, { id, ...(patch||{}) }); track('edit'); } }}
+                 onDeleteType={(id)=>{ window.fb.remove('embeds/'+id); track('edit'); }}
+                 onSyncQtys={()=>{ const marks=new Set([...Object.keys(master||{}), ...embeds.map(e=>e.mark)]);
+                   marks.forEach(m=>{ if(!m) return; const c=embeds.filter(e=>e.mark===m).length; window.fb.update('embeds/'+m, { id:m, qty:c }); }); track('edit'); }} />,
     crew: <Crew embeds={embeds} user={user} isPhone={isPhone} crew={crew} />,
     arcade: (
       <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
