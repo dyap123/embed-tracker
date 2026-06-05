@@ -297,8 +297,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {renderZones.map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'255,111,181':(z.color||'126,120,240');
             const n=embeds.filter(e=>pointInPoly(e.nx,e.ny,zonePts(z))).length;   // live count — updates as the grid/embeds change
-            const tag=z.done?'POUR DONE · ':z.nextPour?'NEXT POUR · ':'';
-            const lbl=`${tag}Sequence ${z.pour} · Phase ${z.phase||'1'} · Area ${z.area} · ${n} embeds`; return (
+            const lbl=`${z.nextPour?'NEXT · ':''}Seq ${z.pour} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.done?' ✓':''}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
               <span style={{ position:'absolute', top:0, left:0, transform:`scale(${1/view.s})`, transformOrigin:'0 0',
                 background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
