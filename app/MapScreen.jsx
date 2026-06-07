@@ -27,7 +27,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
-  const [layerVis, setLayerVis] = React.useState({ PWJV:true, WCG:true });   // per-layer markup show/hide
+  const [layerVis, setLayerVis] = React.useState({ PWJV:true, WCG:true, Pours:true });   // per-layer markup show/hide
+  const [showPours, setShowPours] = React.useState(false);   // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, stubColumn:false, sequence:'1', phase:'1', area:'A', mark:'' });
   const [draft, setDraft] = React.useState(null);         // rect zone being dragged
@@ -62,6 +63,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   },[box,isPhone]);
   React.useEffect(()=>{ if(!touched.current) setView({ s:1, tx:plan.ox, ty:plan.oy, init:true }); },[plan]);
   function fit(){ touched.current=false; setView({ s:1, tx:plan.ox, ty:plan.oy, init:true }); }
+  function focusZone(z){ const bb=isPoly(z)?bboxOf(z.points):z; const cx=(bb.x+bb.w/2)*plan.pw, cy=(bb.y+bb.h/2)*plan.ph;  // pan/zoom to a pour
+    const s=clampS(2.2); touched.current=true; setView({ s, tx:box.w/2 - cx*s, ty:box.h/2 - cy*s, init:true }); }
   React.useEffect(()=>{ if(drawMode!=='pin') setGhost(null); },[drawMode]);   // clear cursor preview
 
   // ---- fullscreen ----
@@ -268,7 +271,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,
+      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -445,6 +448,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         {editZone && <ZoneEditor zone={editZone} onCancel={()=>setEditZone(null)} onApply={commitZone}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}
         {gridMode && manager && <GridEditor grid={grid} onClose={()=>setGridMode(false)} onSave={(cfg)=>{ onSaveGrid(cfg); setGridMode(false); }} />}
+        {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone}
+          onUpdateZone={onUpdateZone} onClose={()=>setShowPours(false)} onGoto={(z)=>{ focusZone(z); if(isPhone) setShowPours(false); }} />}
         {confirm && <ConfirmDialog message={confirm.message} onYes={confirm.onYes} onNo={()=>setConfirm(null)} />}
       </div>
     </div>
@@ -471,7 +476,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   return (
     <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', flexWrap:'wrap',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#141A24','#0E131B'), position:'relative', zIndex:6 }}>
@@ -522,7 +527,7 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,s
           <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={()=>setGridMode(g=>!g)}>Grid</Btn>
         </>}
         <div style={{ display:'flex', gap:4 }}>
-          {[['PWJV','126,120,240'],['WCG','82,230,224']].map(([L,rgb])=>{ const on=layerVis[L]; return (
+          {[['PWJV','126,120,240'],['WCG','82,230,224'],['Pours','245,194,75']].map(([L,rgb])=>{ const on=layerVis[L]; return (
             <button key={L} onClick={()=>setLayerVis(v=>({...v,[L]:!v[L]}))} title={(on?'Hide ':'Show ')+L+' markups'}
               style={{ display:'flex', alignItems:'center', gap:5, height:30, padding:'0 9px', borderRadius:T.radius.md,
                 background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.3)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line),
@@ -531,6 +536,7 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,s
             </button>
           ); })}
         </div>
+        <Btn size="sm" kind={pours?'primary':'ghost'} icon="clipboard" onClick={()=>setPours(p=>!p)}>Pours</Btn>
         <button onClick={toggleFull} title={full?'Exit full screen':'Full screen'} style={{ ...zbtn, width:32, height:30, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line }}><Icon name={full?'minimize':'maximize'} size={16}/></button>
         <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,.3)', borderRadius:T.radius.md, padding:3, border:'1px solid '+T.color.line }}>
           <button onClick={zoomOut} style={zbtn}><Icon name="minus" size={16}/></button>
@@ -696,6 +702,86 @@ function GridRuler({ view, plan, box }){
         <div style={{ position:'absolute', left:0, top:y, height:1, width:7, background:tick }} />
         <div style={{ ...chip, left:8, top:y, transform:'translateY(-50%)' }}>{l}</div>
       </React.Fragment>))}
+    </div>
+  );
+}
+
+/* ---- Pours drawer: every "Pours" markup = a pour, with an editable pre-pour checklist
+   and a link to the live pour on the CUP dashboard. Pours layer zones only. ---- */
+const CUP_LIVE_URL = 'https://dyap123.github.io/cup-dashboard/?view=live';
+function poursItems(z){ return (z.checklist && z.checklist.length) ? z.checklist : (window.PREPOUR_DEFAULT||[]).map(t=>({ text:t, done:false })); }
+
+function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto }){
+  const today = ()=> new Date().toISOString().slice(0,10);
+  const pours = zones.filter(z=>(z.layer||'PWJV')==='Pours')
+    .sort((a,b)=> (a.date||'9999').localeCompare(b.date||'9999') || (a.createdAt||0)-(b.createdAt||0));
+  return (
+    <div data-ui style={{ position:'absolute', top:0, right:0, bottom:0, width:isPhone?'100%':360, zIndex:20, display:'flex', flexDirection:'column',
+      background:steelPlate('#141B26','#0E131B'), borderLeft:'1px solid '+T.color.line, boxShadow:'-20px 0 60px -30px rgba(0,0,0,.9)' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', borderBottom:'1px solid '+T.color.line }}>
+        <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+          <Icon name="clipboard" size={18} style={{ color:T.color.amber }} />
+          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase' }}>Pours · pre-pour</span>
+        </div>
+        <button onClick={onClose} style={{ color:T.color.steel400 }}><Icon name="close" size={16}/></button>
+      </div>
+      <div style={{ flex:1, overflowY:'auto', padding:'10px 12px 16px' }}>
+        {pours.length===0 && <div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400, padding:'14px 8px', lineHeight:1.6 }}>
+          No pours yet. Draw a <b style={{color:'#fff'}}>Box</b> or <b style={{color:'#fff'}}>Polygon</b> on the map and set its layer to <b style={{color:'#fff'}}>Pours</b> — it shows here with a pre-pour checklist.</div>}
+        {pours.map(z=> <PourRow key={z.id} z={z} manager={manager} user={user} today={today} onUpdateZone={onUpdateZone} onGoto={onGoto} />)}
+      </div>
+    </div>
+  );
+}
+
+function PourRow({ z, manager, user, today, onUpdateZone, onGoto }){
+  const [exp, setExp] = React.useState(false);
+  const items = poursItems(z);
+  const doneN = items.filter(i=>i.done).length;
+  const gc = z.done ? '47,214,166' : z.nextPour ? '82,230,224' : (z.color||'245,194,75');
+  const title = `${seqLabel(z.pour)} · Area ${z.area}${z.date?' · '+shortDate(z.date):''}`;
+  function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
+  function toggle(i){ const it=items[i]; writeItems(items.map((x,k)=> k===i ? (it.done?{...x,done:false,by:null,at:null}:{...x,done:true,by:user.name,at:today()}) : x)); }
+  function rename(i,text){ writeItems(items.map((x,k)=> k===i?{...x,text}:x)); }
+  function remove(i){ writeItems(items.filter((_,k)=>k!==i)); }
+  function add(){ writeItems([...items, { text:'New item', done:false }]); }
+  return (
+    <div style={{ border:'1px solid '+T.color.line, borderRadius:T.radius.lg, marginBottom:9, overflow:'hidden', background:'rgba(0,0,0,.18)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 12px' }}>
+        <span style={{ width:9, height:9, borderRadius:2, flex:'0 0 auto', background:`rgb(${gc})` }} />
+        <div onClick={()=>setExp(e=>!e)} style={{ flex:1, minWidth:0, cursor:'pointer' }}>
+          <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title}</div>
+          <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:2 }}>{z.nextPour?'NEXT · ':''}{z.cupPourId?('CUP '+z.cupPourId):'no CUP id'}</div>
+        </div>
+        <button onClick={()=>onGoto&&onGoto(z)} title="Go to pour on map" style={{ color:T.color.cyan, padding:4 }}><Icon name="target" size={15}/></button>
+        <span style={{ fontFamily:T.font.mono, fontSize:12, color: doneN===items.length&&items.length?T.color.green:T.color.steel300 }}>{doneN}/{items.length}</span>
+        <button onClick={()=>setExp(e=>!e)} style={{ color:T.color.steel400, padding:2 }}><Icon name="chevronDown" size={15} style={{ transform:exp?'rotate(180deg)':'none', transition:'transform .2s' }} /></button>
+      </div>
+      {exp && (
+        <div style={{ padding:'2px 12px 13px', display:'flex', flexDirection:'column', gap:7 }}>
+          {items.map((it,i)=>(
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:9 }}>
+              <button onClick={()=>toggle(i)} title={it.done?'Uncheck':'Check'} style={{ width:22, height:22, flex:'0 0 auto', borderRadius:6, display:'grid', placeItems:'center',
+                background:it.done?T.color.green:'rgba(0,0,0,.25)', border:'1px solid '+(it.done?T.color.green:T.color.line) }}>
+                {it.done && <Icon name="check" size={14} style={{ color:'#06140e' }} />}
+              </button>
+              {manager
+                ? <input defaultValue={it.text} onBlur={e=>{ if(e.target.value!==it.text) rename(i, e.target.value); }}
+                    style={{ ...inputStyle, flex:1, padding:'6px 9px', fontSize:12.5 }} />
+                : <span style={{ flex:1, fontSize:13, color:it.done?T.color.steel300:'#fff', textDecoration:it.done?'line-through':'none' }}>{it.text}</span>}
+              {it.done && it.by && <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, whiteSpace:'nowrap' }}>{it.by.split(' ')[0]}{it.at?' · '+shortDate(it.at):''}</span>}
+              {manager && <button onClick={()=>remove(i)} title="Remove" style={{ color:T.color.steel400, padding:3 }}><Icon name="trash" size={13}/></button>}
+            </div>
+          ))}
+          {manager && <button onClick={add} style={{ display:'flex', alignItems:'center', gap:6, color:T.color.amberHot, fontFamily:T.font.mono, fontSize:12, padding:'4px 0', letterSpacing:'.04em' }}>
+            <Icon name="plus" size={13}/> ADD ITEM</button>}
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:6, paddingTop:10, borderTop:'1px solid '+T.color.lineSoft }}>
+            <input defaultValue={z.cupPourId||''} placeholder="CUP pour (e.g. B-2)" onBlur={e=>{ if(e.target.value!==(z.cupPourId||'')) onUpdateZone(z.id,{ cupPourId:e.target.value }); }}
+              style={{ ...inputStyle, width:130, padding:'7px 9px', fontSize:12.5, fontFamily:T.font.mono }} />
+            <Btn size="sm" kind="primary" icon="arrowRight" onClick={()=>window.open(CUP_LIVE_URL,'_blank','noopener')}>Go to live pour</Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

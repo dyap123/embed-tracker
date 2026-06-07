@@ -7,7 +7,6 @@ function useIsPhone(){
 
 const NAV = [
   { id:'map',       label:'Plan',      icon:'map' },
-  { id:'pourmap',   label:'Pour map',  icon:'clipboard' },
   { id:'dashboard', label:'Dashboard', icon:'dash' },
   { id:'inventory', label:'Inventory', icon:'inventory' },
   { id:'crew',      label:'Crew',      icon:'crew' },
@@ -104,7 +103,6 @@ function App(){
     onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall, grid, onSaveGrid:saveGrid };
   const screenEl = {
     map: <MapScreen {...mapProps} />,
-    pourmap: <PourMap {...mapProps} />,
     dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,
     inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}

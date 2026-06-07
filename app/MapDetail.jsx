@@ -214,7 +214,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 
           {/* layer + pour date */}
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-            <div style={{ flex:'1 1 130px' }}><Field label="Layer"><Segmented value={layer} onChange={setLayer} options={['PWJV','WCG']} /></Field></div>
+            <div style={{ flex:'1 1 130px' }}><Field label="Layer"><Segmented value={layer} onChange={setLayer} options={['PWJV','WCG','Pours']} /></Field></div>
             <div style={{ flex:'1 1 130px' }}><Field label="Pour date">
               <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{ ...inputStyle, padding:'8px 10px', fontSize:13, colorScheme:'dark' }} />
             </Field></div>
