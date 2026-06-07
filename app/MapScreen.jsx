@@ -12,7 +12,7 @@ function zonePts(z){ return isPoly(z)? z.points : rectToPoly(z); }
 function bboxOf(pts){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; pts.forEach(([x,y])=>{ x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y); }); return { x:x0, y:y0, w:x1-x0, h:y1-y0 }; }
 function pointInPoly(px,py,pts){ let c=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const [xi,yi]=pts[i],[xj,yj]=pts[j]; if(((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) c=!c; } return c; }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, onSaveGrid }){
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, onSaveGrid, pourMode }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const [box, setBox] = React.useState({ w:1000, h:700 });
@@ -22,6 +22,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [seq, setSeq] = React.useState('2');               // current sequence (yellow)
   const [filter, setFilter] = React.useState('all');      // status filter
   const [cat, setCat] = React.useState('all');            // knife-plate filter
+  const [stub, setStub] = React.useState('all');          // stub-column filter
   const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
@@ -237,6 +238,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const visible = embeds.filter(e=>
     (filter==='all' || pinState(e,seq)===filter) &&
     (cat==='all' || (cat==='kp' ? e.hasKnife : !e.hasKnife)) &&
+    (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql)) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e,seq)===k).length; return m; },{});
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
@@ -266,7 +268,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,layerVis,setLayerVis,
+      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -469,13 +471,13 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,layerVis,setLayerVis,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   return (
     <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', flexWrap:'wrap',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#141A24','#0E131B'), position:'relative', zIndex:6 }}>
       <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-        <Icon name="target" size={18} style={{ color:T.color.amber }} />
-        <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:18, textTransform:'uppercase', letterSpacing:'.03em' }}>Plan</span>
+        <Icon name={pourMode?'clipboard':'target'} size={18} style={{ color:T.color.amber }} />
+        <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:18, textTransform:'uppercase', letterSpacing:'.03em' }}>{pourMode?'Pour map':'Plan'}</span>
       </div>
       <div style={{ width:1, height:24, background:T.color.line }} />
       {/* select / pan tool */}
@@ -497,6 +499,12 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
           <Segmented size="sm" value={cat} onChange={setCat} options={[{value:'all',label:'All'},{value:'kp',label:'Has KP'},{value:'nokp',label:'No KP'}]} />
         </div>
       )}
+      {!isPhone && (
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <Kicker>Stub</Kicker>
+          <Segmented size="sm" value={stub} onChange={setStub} options={[{value:'all',label:'All'},{value:'sc',label:'Has SC'},{value:'nosc',label:'No SC'}]} />
+        </div>
+      )}
       <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 10px', height:30 }}>
         <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Find mark…"
@@ -506,8 +514,8 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,tool,setTool,drawMo
       <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
         {manager && drawMode==='poly' && poly.length>=3 && <Btn size="sm" kind="primary" icon="check" onClick={finishPoly}>Finish</Btn>}
         {manager && (drawMode==='rect'||drawMode==='poly') && <Btn size="sm" kind="ghost" icon="close" onClick={cancel}>Cancel</Btn>}
-        {/* Add embed — open to everyone on the roster (permissions come later) */}
-        {drawMode==='off' && <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>}
+        {/* Add embed — open to everyone on the roster (hidden on the markup-focused Pour map) */}
+        {drawMode==='off' && !pourMode && <Btn size="sm" kind="ghost" icon="pinAdd" onClick={()=>setDrawMode('pin')}>Add embed</Btn>}
         {manager && drawMode==='off' && <>
           <Btn size="sm" kind="ghost" icon="zone" onClick={()=>setDrawMode('rect')}>Box</Btn>
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>

@@ -179,6 +179,10 @@ function pinToEmbed(key, p){
   };
 }
 
+/* default pre-pour checklist items (editable per pour) */
+const PREPOUR_DEFAULT = ['Bill Carr Surveyors','Temperature sensors installed','ACC pre-pour checklist'];
+window.PREPOUR_DEFAULT = PREPOUR_DEFAULT;
+
 /* short date for labels: 'YYYY-MM-DD' -> 'Mon D' (e.g. 'Jun 12') */
 function shortDate(d){ if(!d) return ''; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d); if(!m) return d;
   const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(+m[2])-1]||''; return `${mo} ${+m[3]}`; }

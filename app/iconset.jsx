@@ -51,6 +51,8 @@ const ICONS = {
   panelLeft: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="M14.5 9.5 12 12l2.5 2.5" /></>,
   panelRight: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="M11.5 9.5 14 12l-2.5 2.5" /></>,
   menu: <path d="M3 6h18M3 12h18M3 18h18" />,
+  clipboard: <><rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1H9V4Z" /><path d="M9 11l2 2 4-4" /></>,
+
   eye: <><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
   eyeOff: <><path d="M2 12s3.6-7 10-7c2.1 0 3.9.6 5.4 1.5M22 12s-3.6 7-10 7c-2.1 0-3.9-.6-5.4-1.5" /><path d="M9.6 9.6a3 3 0 0 0 4.2 4.2" /><path d="M3 3l18 18" /></>,
 
