@@ -89,6 +89,9 @@ function App(){
   function removeZone(id){ window.fb.remove('zones/'+id); }
   function restoreZone(id, z){ const {id:_drop, ...rest}=z||{}; window.fb.set('zones/'+id, rest); }   // for undo
 
+  // ---- crew (Firebase users) — add a new member from the badge-in screen ----
+  function addCrew(c){ if(!c||!c.id) return; window.fb.set('users/'+c.id, { ...c, updates:0, installs:0, points:0 }); }
+
   function signIn(u){ setUser(u); try{ sessionStorage.setItem('embedyap_user', JSON.stringify(u)); }catch(e){} }
   function saveProfile(patch){ if(!userRef.current) return; const id=userRef.current.id;
     window.fb.update('users/'+id, patch);
@@ -96,7 +99,7 @@ function App(){
     flash(remarkFor('edit')); }
   function signOut(){ setUser(null); sessionStorage.removeItem('embedyap_user'); setScreen('map'); }
 
-  if(!user) return <><SignIn onSignIn={signIn} crew={crew} embeds={embeds} />{toast&&<RemarkToast msg={toast} />}</>;
+  if(!user) return <><SignIn onSignIn={signIn} onAddCrew={addCrew} crew={crew} embeds={embeds} />{toast&&<RemarkToast msg={toast} />}</>;
 
   const mapProps = { embeds, updateEmbed, bulkUpdate, user, isPhone, zones,
     onAddZone:addZone, onUpdateZone:updateZone, onRemoveZone:removeZone, onRestoreZone:restoreZone,

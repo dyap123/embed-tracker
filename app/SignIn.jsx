@@ -1,5 +1,6 @@
 /* EmbedYap — Sign in: full-screen immersive "badge-in" terminal */
-function SignIn({ onSignIn, crew, embeds=[] }){
+const ADD_PIN = '050103';   // gate to add a new crew member from the badge-in screen
+function SignIn({ onSignIn, onAddCrew, crew, embeds=[] }){
   const ROSTER = (crew && crew.length) ? crew : (window.CREW || CREW);
   const [sel, setSel] = React.useState(null);
   const [pin, setPin] = React.useState('');
@@ -7,12 +8,32 @@ function SignIn({ onSignIn, crew, embeds=[] }){
   const user = ROSTER.find(c=>c.id===sel);
   const needPin = user && user.manager;
 
+  // add-crew flow
+  const [adding, setAdding] = React.useState(false);
+  const [nf, setNf] = React.useState({ name:'', role:'', manager:false, pin:'' });
+  const [apin, setApin] = React.useState('');
+  const [aerr, setAerr] = React.useState('');
+
   function badgeIn(){
     if (!user) return;
     if (needPin && pin !== user.pin){ setErr(true); return; }
     onSignIn(user);
   }
   React.useEffect(()=>{ setPin(''); setErr(false); }, [sel]);
+
+  function initialsOf(name){ const p=name.trim().split(/\s+/).filter(Boolean);
+    const two=((p[0]||'')[0]||'')+((p[1]||'')[0]||''); return (two||name.trim().slice(0,2)||'?').toUpperCase(); }
+  function slugOf(name){ const base=(name.trim().toLowerCase().split(/\s+/)[0]||'crew').replace(/[^a-z0-9]/g,'')||'crew';
+    const ids=new Set(ROSTER.map(c=>c.id)); let id=base, n=2; while(ids.has(id)){ id=base+n; n++; } return id; }
+  function createCrew(){
+    if (apin !== ADD_PIN){ setAerr('Incorrect add PIN'); return; }
+    const name = nf.name.trim(); if(!name){ setAerr('Enter a name'); return; }
+    if (nf.manager && nf.pin.length < 4){ setAerr('Manager needs a 4–6 digit PIN'); return; }
+    const c = { id:slugOf(name), name, role:(nf.role.trim()||'PWJV'), initials:initialsOf(name),
+      manager:!!nf.manager, pin: nf.manager ? nf.pin : null };
+    onAddCrew && onAddCrew(c);
+    setAdding(false); setNf({ name:'', role:'', manager:false, pin:'' }); setApin(''); setAerr(''); setSel(c.id);
+  }
 
   const k = kpis(embeds);
   const nextCount = embeds.filter(e=>e.nextPour).length;
@@ -103,8 +124,55 @@ function SignIn({ onSignIn, crew, embeds=[] }){
                 </button>
               );
             })}
+            {/* add a new crew member */}
+            <button onClick={()=>{ setAdding(true); setSel(null); }} title="Add crew member"
+              style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8, width:88, transition:'transform .15s', transform:adding?'translateY(-2px)':'none' }}>
+              <span style={{ width:60, height:60, borderRadius:'50%', display:'grid', placeItems:'center',
+                background:'rgba(146,164,196,.06)', color:adding?'#fff':T.color.steel300,
+                border:'2px dashed '+(adding?'#A6A0FF':'rgba(146,164,196,.4)') }}>
+                <Icon name="plus" size={26} />
+              </span>
+              <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:12.5, color:adding?'#fff':T.color.steel300 }}>Add</span>
+            </button>
           </div>
 
+          {adding ? (
+          /* add-crew form */
+          <div style={{ borderTop:'1px solid '+T.color.line, background:'rgba(0,0,0,.22)', padding:'16px 22px', display:'flex', flexDirection:'column', gap:13 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <Kicker>New crew member</Kicker>
+              <button onClick={()=>{ setAdding(false); setAerr(''); }} style={{ color:T.color.steel400 }}><Icon name="close" size={16}/></button>
+            </div>
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+              <div style={{ flex:'1 1 200px' }}><Field label="Name"><input value={nf.name} autoFocus onChange={e=>{ setAerr(''); setNf(f=>({...f,name:e.target.value})); }}
+                placeholder="e.g. Danzel Yap" style={{ ...inputStyle, padding:'9px 11px', fontSize:14 }} /></Field></div>
+              <div style={{ flex:'1 1 200px' }}><Field label="Role"><input value={nf.role} onChange={e=>setNf(f=>({...f,role:e.target.value}))}
+                placeholder="e.g. PWJV · PE" style={{ ...inputStyle, padding:'9px 11px', fontSize:14 }} /></Field></div>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, background:'rgba(0,0,0,.22)', border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:'10px 14px' }}>
+                <div><div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5, textTransform:'uppercase', color:nf.manager?T.color.amber:'#fff' }}>Manager</div>
+                  <div style={{ fontSize:11, color:T.color.steel300 }}>Needs a PIN to badge in</div></div>
+                <Toggle on={nf.manager} onChange={()=>setNf(f=>({...f,manager:!f.manager}))} />
+              </div>
+              {nf.manager && <Field label="Manager PIN"><input value={nf.pin} onChange={e=>setNf(f=>({...f,pin:e.target.value.replace(/\D/g,'').slice(0,6)}))}
+                inputMode="numeric" placeholder="4–6 digits" style={{ ...inputStyle, width:140, fontFamily:T.font.mono, padding:'9px 11px', fontSize:15, letterSpacing:'.12em' }} /></Field>}
+            </div>
+            <div style={{ display:'flex', alignItems:'flex-end', gap:14, flexWrap:'wrap' }}>
+              <Field label="Add PIN"><div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <Icon name="lock" size={16} style={{ color:aerr?T.color.red:T.color.steel300 }} />
+                <input value={apin} onChange={e=>{ setAerr(''); setApin(e.target.value.replace(/\D/g,'').slice(0,6)); }}
+                  inputMode="numeric" placeholder="••••••" maxLength={6} onKeyDown={e=>e.key==='Enter'&&createCrew()}
+                  style={{ ...inputStyle, width:150, fontFamily:T.font.mono, fontSize:20, letterSpacing:'.24em', textAlign:'center', padding:'9px 12px', borderColor:aerr?T.color.red:T.color.line }} />
+              </div></Field>
+              <Btn kind="primary" size="lg" icon="check" style={{ marginLeft:'auto' }} onClick={createCrew}>Create</Btn>
+            </div>
+            {aerr
+              ? <div style={{ color:T.color.red, fontSize:13, fontFamily:T.font.mono }}>✕ {aerr}</div>
+              : <div style={{ color:T.color.steel400, fontSize:12, fontFamily:T.font.mono }}>Enter the add PIN to create this crew member.</div>}
+          </div>
+          ) : (
+          <>
           {/* dock: selected + PIN + badge-in */}
           <div style={{ borderTop:'1px solid '+T.color.line, background:'rgba(0,0,0,.22)', padding:'16px 22px',
             display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
@@ -128,6 +196,8 @@ function SignIn({ onSignIn, crew, embeds=[] }){
           </div>
           {err && <div style={{ color:T.color.red, fontSize:13, padding:'0 22px 14px', fontFamily:T.font.mono }}>✕ Incorrect PIN — try again.</div>}
           {needPin && !err && <div style={{ color:T.color.steel400, fontSize:12, padding:'0 22px 14px', fontFamily:T.font.mono }}>Enter your 6-digit manager PIN</div>}
+          </>
+          )}
         </div>
       </div>
 
