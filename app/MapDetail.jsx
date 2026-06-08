@@ -177,7 +177,7 @@ const ZONE_COLORS = [
   ['170,220,70','Lime'],['245,194,75','Gold'],['255,150,60','Orange'],
   ['196,92,203','Magenta'],['240,85,107','Coral'],['151,166,200','Steel'],
 ];
-function ZoneEditor({ zone, onApply, onCancel, onDelete }){
+function ZoneEditor({ zone, onApply, onCancel, onDelete, unplaced=[] }){
   const [area, setArea] = React.useState(zone.area || 'A');
   const [pour, setPour] = React.useState(zone.pour || '1');
   const [phase, setPhase] = React.useState(zone.phase || '1');
@@ -187,6 +187,10 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
   const [color, setColor] = React.useState(zone.color || '126,120,240');
   const [layer, setLayer] = React.useState(zoneLayer(zone));
   const [date, setDate] = React.useState(zone.date || '');
+  const [name, setName] = React.useState(zone.name || '');
+  const [attachTo, setAttachTo] = React.useState('');   // '' = new pour; else id of an un-placed pour
+  const canAttach = !!zone._new && unplaced.length>0;
+  const target = attachTo ? unplaced.find(p=>p.id===attachTo) : null;
 
   const Tag = ({ on, set, c, title, sub }) => (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
@@ -207,8 +211,29 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
           <Icon name="zone" size={18} style={{ color:T.color.amber }} />
           <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, textTransform:'uppercase', letterSpacing:'.03em' }}>{zone._new?'Tag zone':'Edit zone'}</span>
         </div>
-        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>Tag every embed inside this zone. Area &amp; sequence stay as-is unless you choose to reassign them.</p>
+        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>{target?'Drop this box onto an existing pour to give it a location.':'Tag every embed inside this zone. Area & sequence stay as-is unless you choose to reassign them.'}</p>
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          {canAttach && (
+            <Field label="Pour">
+              <select value={attachTo} onChange={e=>setAttachTo(e.target.value)}
+                style={{ ...inputStyle, padding:'9px 11px', fontSize:13.5, width:'100%', colorScheme:'dark' }}>
+                <option value="">+ New pour</option>
+                {unplaced.map(p=> <option key={p.id} value={p.id}>{(p.name||('Pour '+p.id.slice(-4)))}{p.date?' · '+window.shortDate(p.date):''}</option>)}
+              </select>
+            </Field>
+          )}
+
+          {target ? (
+            <div style={{ background:'rgba(82,230,224,.08)', border:'1px solid rgba(82,230,224,.4)', borderRadius:T.radius.lg, padding:'14px 16px' }}>
+              <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, color:T.color.cyan }}>{target.name||('Pour '+target.id.slice(-4))}</div>
+              <div style={{ fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel300, marginTop:3 }}>
+                {[seqLabel(target.pour), target.area&&('Area '+target.area), target.phase&&('Ph '+target.phase), target.date&&window.shortDate(target.date), (+target.cy?(+target.cy+' CY'):null)].filter(Boolean).join(' · ')}
+              </div>
+              <div style={{ fontSize:12, color:T.color.steel300, marginTop:8 }}>The box you drew will become this pour's location.</div>
+            </div>
+          ) : (<>
+          {zone._new && <Field label="Pour name (optional)"><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. South footing pour"
+            style={{ ...inputStyle, padding:'9px 11px', fontSize:13.5 }} /></Field>}
           <Tag on={nextPour} set={setNextPour} c="82,230,224" title="Next pour" sub="Cyan layer · flags everything inside as the next pour" />
           <Tag on={done} set={setDone} c="47,214,166" title="Pour complete" sub="Green layer · marks every embed inside installed" />
 
@@ -232,17 +257,20 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 
           {!nextPour && !done && (
             <Field label="Highlight color">
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>{ZONE_COLORS.map(([c,name])=>(
-                <button key={c} title={name} onClick={()=>setColor(c)} style={{ width:30, height:30, borderRadius:8, cursor:'pointer',
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>{ZONE_COLORS.map(([c,nm])=>(
+                <button key={c} title={nm} onClick={()=>setColor(c)} style={{ width:30, height:30, borderRadius:8, cursor:'pointer',
                   background:`rgba(${c},.9)`, border:'2px solid '+(color===c?'#fff':'transparent'), boxShadow:color===c?`0 0 0 2px rgba(${c},.6)`:'none' }} />
               ))}</div>
             </Field>
           )}
+          </>)}
         </div>
         <div style={{ display:'flex', gap:10, marginTop:22 }}>
           {onDelete && <Btn kind="danger" icon="trash" onClick={onDelete}>Delete</Btn>}
           <Btn kind="ghost" onClick={onCancel} style={{ marginLeft:onDelete?0:'auto' }}>Cancel</Btn>
-          <Btn kind="primary" icon="check" onClick={()=>onApply({ ...zone, area, pour, phase, done, nextPour, assign, color, layer, date })} style={{ marginLeft:onDelete?'auto':0 }}>Apply</Btn>
+          <Btn kind="primary" icon="check" onClick={()=>onApply(target
+            ? { ...zone, attachTo }
+            : { ...zone, name, area, pour, phase, done, nextPour, assign, color, layer, date })} style={{ marginLeft:onDelete?'auto':0 }}>{target?'Place pour':'Apply'}</Btn>
         </div>
       </Card>
     </div>

@@ -7,6 +7,9 @@ const STATE_ORDER = ['installed','next','todo'];   // knife plate is an attribut
 // markup layers: PWJV (plain) + WCG Pours (the pour layer). Legacy 'WCG'/'Pours' fold in.
 function zoneLayer(z){ const l=z&&z.layer; return (l==='WCG'||l==='Pours'||l==='WCG Pours') ? 'WCG Pours' : (l||'PWJV'); }
 const LAYERS = [['PWJV','126,120,240'],['WCG Pours','82,230,224']];
+// a pour created in the CUP dashboard has no box yet — it's placed by drawing one here
+function hasGeom(z){ return (Array.isArray(z&&z.points) && z.points.length>=3) || (typeof (z&&z.w)==='number' && z.w>0 && typeof z.h==='number' && z.h>0); }
+function pourTitle(z, n){ return (z&&z.name) ? z.name : ('#'+(n||'?')); }
 
 /* ---- geometry helpers ---- */
 function normZone(d){ const x=Math.min(d.x0,d.x1), y=Math.min(d.y0,d.y1); return { x, y, w:Math.abs(d.x1-d.x0), h:Math.abs(d.y1-d.y0) }; }
@@ -268,12 +271,18 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   function commitZone(z){
     const pts = z.points ? z.points : rectToPoly(z);
+    const bb = bboxOf(pts);
+    // placing a box onto an existing (CUP-created) pour: just write the geometry to it
+    if (z.attachTo){
+      pushUndo({ type:'set', id:z.attachTo, z:zones.find(zz=>zz.id===z.attachTo) });
+      onUpdateZone(z.attachTo, { ...bb, ...(z.points?{points:z.points}:{ points:null }) });
+      setSelZone(z.attachTo); setEditZone(null); return;
+    }
     const ids = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts)).map(e=>e.id);
     // nextPour highlight is derived live from the zone (no pin stamping) — only assign rewrites pins
     if (z.assign){ bulkUpdate(ids, { area:z.area, sequence:z.pour, phase:z.phase||'1', pour:`${z.area}·P${z.pour}` }); }
     if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
-    const bb = bboxOf(pts);
-    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:zoneLayer(z), date:z.date||'', ...(z.points?{points:z.points}:{}) };
+    const payload = { ...bb, name:z.name||'', area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:zoneLayer(z), date:z.date||'', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
   }
@@ -298,7 +307,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
-            {renderZones.filter(z=>layerVis[zoneLayer(z)]).map(z=>{
+            {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z)).map(z=>{
               const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
@@ -330,7 +339,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </svg>
 
           {/* zone labels */}
-          {renderZones.filter(z=>layerVis[zoneLayer(z)]).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+          {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z)).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
             const isPour=zoneLayer(z)==='WCG Pours';
             if (isPour){
@@ -338,10 +347,10 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               return (
                 <div key={'lb'+z.id} style={{ position:'absolute', left:(bb.x+bb.w/2)*100+'%', top:(bb.y+bb.h/2)*100+'%',
                   transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                  <span style={{ display:'inline-flex', alignItems:'baseline', gap:1, background:'rgba(10,14,20,.72)', color:`rgb(${gc})`,
+                  <span style={{ display:'inline-flex', alignItems:'baseline', gap:1, maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', background:'rgba(10,14,20,.72)', color:`rgb(${gc})`,
                     fontFamily:T.font.display, fontWeight:700, fontSize:14, lineHeight:1, padding:'3px 9px', borderRadius:T.radius.md,
                     border:`1px solid rgba(${gc},.5)` }}>
-                    <span style={{ fontSize:10, opacity:.6 }}>#</span>{pourNo[z.id]||'?'}{z.done?<span style={{ fontSize:11, marginLeft:3, color:'#47D6A6' }}>✓</span>:null}
+                    {z.name ? z.name : <span><span style={{ fontSize:10, opacity:.6 }}>#</span>{pourNo[z.id]||'?'}</span>}{z.done?<span style={{ fontSize:11, marginLeft:3, color:'#47D6A6' }}>✓</span>:null}
                   </span>
                   {(z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:9, fontWeight:600, color:T.color.steel300,
                     background:'rgba(10,14,20,.62)', padding:'1px 6px', borderRadius:5, whiteSpace:'nowrap' }}>
@@ -474,6 +483,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         {sel && <PinDetail key={sel.id} embed={sel} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
           manager={manager} onDelete={manager?()=>{ requestDeletePins([sel.id]); setSelId(null); }:null} />}
         {editZone && <ZoneEditor zone={editZone} onCancel={()=>setEditZone(null)} onApply={commitZone}
+          unplaced={zones.filter(z=>zoneLayer(z)==='WCG Pours' && !hasGeom(z))}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}
         {gridMode && manager && <GridEditor grid={grid} onClose={()=>setGridMode(false)} onSave={(cfg)=>{ onSaveGrid(cfg); setGridMode(false); }} />}
         {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone}
@@ -781,8 +791,9 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
   const status = pourStatus(z);
   const gc = z.nextPour ? '82,230,224' : (POUR_STATUS_RGB[status] || z.color || '245,194,75');
   const mix = z.mix || {};
-  const title = `#${n}${z.date?' · '+shortDate(z.date):''}`;
-  const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
+  const placed = hasGeom(z);
+  const title = `${pourTitle(z,n)}${z.date?' · '+shortDate(z.date):''}`;
+  const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (placed ? null : 'NOT PLACED'), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
   function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
   function toggle(i){ const it=items[i]; writeItems(items.map((x,k)=> k===i ? (it.done?{...x,done:false,by:null,at:null}:{...x,done:true,by:user.name,at:today()}) : x)); }
   function rename(i,text){ writeItems(items.map((x,k)=> k===i?{...x,text}:x)); }
@@ -797,7 +808,9 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
           <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title}</div>
           <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:2 }}>{sub}</div>
         </div>
-        <button onClick={()=>onGoto&&onGoto(z)} title="Go to pour on map" style={{ color:T.color.cyan, padding:4 }}><Icon name="target" size={15}/></button>
+        {placed
+          ? <button onClick={()=>onGoto&&onGoto(z)} title="Go to pour on map" style={{ color:T.color.cyan, padding:4 }}><Icon name="target" size={15}/></button>
+          : <span title="Draw its box on the map to place it" style={{ color:T.color.amberHot, fontFamily:T.font.mono, fontSize:9, fontWeight:700, padding:'2px 5px', border:'1px solid rgba(245,194,75,.4)', borderRadius:5 }}>PLACE</span>}
         <span style={{ fontFamily:T.font.mono, fontSize:12, color: doneN===items.length&&items.length?T.color.green:T.color.steel300 }}>{doneN}/{items.length}</span>
         <button onClick={()=>setExp(e=>!e)} style={{ color:T.color.steel400, padding:2 }}><Icon name="chevronDown" size={15} style={{ transform:exp?'rotate(180deg)':'none', transition:'transform .2s' }} /></button>
       </div>
