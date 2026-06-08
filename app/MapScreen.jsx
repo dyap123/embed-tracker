@@ -748,7 +748,8 @@ function GridRuler({ view, plan, box }){
 /* ---- Pours drawer: every "Pours" markup = a pour, with an editable pre-pour checklist
    and a link to the live pour on the CUP dashboard. Pours layer zones only. ---- */
 const CUP_LIVE_URL = 'https://dyap123.github.io/cup-dashboard/?view=live';
-function poursItems(z){ return (z.checklist && z.checklist.length) ? z.checklist : (window.PREPOUR_DEFAULT||[]).map(t=>({ text:t, done:false })); }
+function poursItems(z){ const stored = Array.isArray(z.checklist)?z.checklist:[]; const have=new Set(stored.map(i=>i&&i.text)); const merged=stored.slice();
+  (window.PREPOUR_DEFAULT||[]).forEach(t=>{ if(!have.has(t)) merged.push({ text:t, done:false }); }); return merged; }
 
 function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto, onClearNextPour }){
   const today = ()=> new Date().toISOString().slice(0,10);

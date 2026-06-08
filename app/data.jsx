@@ -179,7 +179,7 @@ function pinToEmbed(key, p){
 }
 
 /* default pre-pour checklist items (editable per pour) */
-const PREPOUR_DEFAULT = ['Bill Carr Surveyors','Temperature sensors installed','ACC pre-pour checklist'];
+const PREPOUR_DEFAULT = ['Bill Carr Surveyors','Temperature sensors installed','ACC pre-pour checklist','LADBS inspection','Twining','Batch plant','WSP'];
 window.PREPOUR_DEFAULT = PREPOUR_DEFAULT;
 
 /* short date for labels: 'YYYY-MM-DD' -> 'Mon D' (e.g. 'Jun 12') */
