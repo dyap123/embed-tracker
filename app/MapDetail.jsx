@@ -1,9 +1,9 @@
 /* EmbedYap — pin detail panel (sequence/area/install + RFI) and zone editor */
 
-function PinDetail({ embed, seq, onClose, updateEmbed, isPhone, manager, onDelete }){
+function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
   const [celebrate, setCelebrate] = React.useState(false);
   const [mark, setMark] = React.useState(embed.mark||'');
-  const st = pinState(embed, seq);
+  const st = pinState(embed);
 
   function toggleInstall(){
     const now = !embed.installed;
@@ -185,7 +185,7 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
   const [nextPour, setNextPour] = React.useState(!!zone.nextPour);
   const [assign, setAssign] = React.useState(!!zone.assign);
   const [color, setColor] = React.useState(zone.color || '126,120,240');
-  const [layer, setLayer] = React.useState(zone.layer || 'PWJV');
+  const [layer, setLayer] = React.useState(zoneLayer(zone));
   const [date, setDate] = React.useState(zone.date || '');
 
   const Tag = ({ on, set, c, title, sub }) => (
@@ -214,9 +214,9 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete }){
 
           {/* layer + pour date */}
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-            <div style={{ flex:'1 1 130px' }}><Field label="Layer"><Segmented value={layer} onChange={setLayer} options={['PWJV','WCG','Pours']} /></Field></div>
-            <div style={{ flex:'1 1 130px' }}><Field label="Pour date">
-              <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{ ...inputStyle, padding:'8px 10px', fontSize:13, colorScheme:'dark' }} />
+            <div style={{ flex:'1 1 130px' }}><Field label="Layer"><Segmented value={layer} onChange={setLayer} options={['PWJV','WCG Pours']} /></Field></div>
+            <div style={{ flex:'1 1 150px' }}><Field label="Pour date">
+              <DatePopover value={date} onChange={setDate} />
             </Field></div>
           </div>
 
@@ -282,4 +282,59 @@ function NewPinEditor({ pos, onCreate, onCancel }){
   );
 }
 
-Object.assign(window, { PinDetail, ZoneEditor, Celebrate, NewPinEditor });
+/* ---- clean date picker (calendar popover; writes 'YYYY-MM-DD') ---- */
+const DP_WD = ['S','M','T','W','T','F','S'];
+const DP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function dpParts(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); return m?{ y:+m[1], mo:+m[2], d:+m[3] }:null; }
+function dpPad(n){ return String(n).padStart(2,'0'); }
+function DatePopover({ value, onChange, disabled }){
+  const [open,setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  const sel = dpParts(value);
+  const now = new Date();
+  const [cur,setCur] = React.useState(()=> sel?{ y:sel.y, mo:sel.mo }:{ y:now.getFullYear(), mo:now.getMonth()+1 });
+  React.useEffect(()=>{ if(open && sel) setCur({ y:sel.y, mo:sel.mo }); },[open]);
+  React.useEffect(()=>{ if(!open) return; const h=e=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown',h,true); return ()=>document.removeEventListener('mousedown',h,true); },[open]);
+  const startWd = new Date(cur.y,cur.mo-1,1).getDay();
+  const days = new Date(cur.y,cur.mo,0).getDate();
+  const cells = []; for(let i=0;i<startWd;i++) cells.push(null); for(let d=1;d<=days;d++) cells.push(d);
+  const prev = ()=> setCur(c=>{ let mo=c.mo-1,y=c.y; if(mo<1){mo=12;y--;} return { y,mo }; });
+  const next = ()=> setCur(c=>{ let mo=c.mo+1,y=c.y; if(mo>12){mo=1;y++;} return { y,mo }; });
+  const pick = d => { onChange(`${cur.y}-${dpPad(cur.mo)}-${dpPad(d)}`); setOpen(false); };
+  const tIso = `${now.getFullYear()}-${dpPad(now.getMonth()+1)}-${dpPad(now.getDate())}`;
+  const label = sel ? `${DP_MON[sel.mo-1]} ${sel.d}, ${sel.y}` : 'Set date';
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <button disabled={disabled} onClick={()=>!disabled&&setOpen(o=>!o)} style={{ display:'flex', alignItems:'center', gap:8, width:'100%', height:34, padding:'0 11px', borderRadius:T.radius.md,
+        background:'rgba(0,0,0,.25)', border:'1px solid '+(value?'rgba(82,230,224,.4)':T.color.line), color:value?'#fff':T.color.steel400, cursor:disabled?'default':'pointer', fontFamily:T.font.mono, fontSize:12.5 }}>
+        <Icon name="calendar" size={14} style={{ color:value?T.color.cyan:T.color.steel400 }} />
+        <span style={{ flex:1, textAlign:'left' }}>{label}</span>
+        {value && !disabled && <span onClick={e=>{ e.stopPropagation(); onChange(''); }} title="Clear"><Icon name="close" size={12} style={{ color:T.color.steel400 }} /></span>}
+      </button>
+      {open && (
+        <div data-ui style={{ position:'absolute', top:38, left:0, zIndex:60, width:240, background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:12, boxShadow:T.shadow.panel }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+            <button onClick={prev} style={{ color:T.color.steel300, padding:4 }}><Icon name="chevronDown" size={16} style={{ transform:'rotate(90deg)' }}/></button>
+            <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:14 }}>{DP_MON[cur.mo-1]} {cur.y}</span>
+            <button onClick={next} style={{ color:T.color.steel300, padding:4 }}><Icon name="chevronDown" size={16} style={{ transform:'rotate(-90deg)' }}/></button>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2 }}>
+            {DP_WD.map((w,i)=><div key={'w'+i} style={{ textAlign:'center', fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, padding:'2px 0' }}>{w}</div>)}
+            {cells.map((d,i)=>{ if(d==null) return <div key={'e'+i} />;
+              const iso=`${cur.y}-${dpPad(cur.mo)}-${dpPad(d)}`; const on=value===iso; const isToday=iso===tIso;
+              return <button key={'d'+i} onClick={()=>pick(d)} style={{ height:28, borderRadius:6, fontFamily:T.font.mono, fontSize:12,
+                background:on?T.color.cyan:'transparent', color:on?'#06140e':'#dfe7f2', fontWeight:on?700:400,
+                border:'1px solid '+(isToday&&!on?'rgba(82,230,224,.5)':'transparent') }}>{d}</button>; })}
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginTop:9, paddingTop:9, borderTop:'1px solid '+T.color.line }}>
+            <button onClick={()=>{ onChange(''); setOpen(false); }} style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>Clear</button>
+            <button onClick={()=>{ onChange(tIso); setOpen(false); }} style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.cyan }}>Today</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { PinDetail, ZoneEditor, Celebrate, NewPinEditor, DatePopover });

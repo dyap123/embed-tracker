@@ -2,7 +2,11 @@
    marquee multi-select, pin detail + RFI, manager markup tools (rect + polygon,
    reshape, copy/paste/delete/undo), interactive embed placement, grid editor. */
 
-const STATE_ORDER = ['installed','current','next','todo'];   // knife plate is an attribute, not a status
+const STATE_ORDER = ['installed','next','todo'];   // knife plate is an attribute, not a status
+
+// markup layers: PWJV (plain) + WCG Pours (the pour layer). Legacy 'WCG'/'Pours' fold in.
+function zoneLayer(z){ const l=z&&z.layer; return (l==='WCG'||l==='Pours'||l==='WCG Pours') ? 'WCG Pours' : (l||'PWJV'); }
+const LAYERS = [['PWJV','126,120,240'],['WCG Pours','82,230,224']];
 
 /* ---- geometry helpers ---- */
 function normZone(d){ const x=Math.min(d.x0,d.x1), y=Math.min(d.y0,d.y1); return { x, y, w:Math.abs(d.x1-d.x0), h:Math.abs(d.y1-d.y0) }; }
@@ -19,7 +23,6 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [view, setView] = React.useState({ s:1, tx:0, ty:0, init:false });
   const [selId, setSelId] = React.useState(null);
   const [selPins, setSelPins] = React.useState([]);       // multi-selected embed ids
-  const [seq, setSeq] = React.useState('2');               // current sequence (yellow)
   const [filter, setFilter] = React.useState('all');      // status filter
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [stub, setStub] = React.useState('all');          // stub-column filter
@@ -27,7 +30,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
-  const [layerVis, setLayerVis] = React.useState({ PWJV:true, WCG:true, Pours:true });   // per-layer markup show/hide
+  const [layerVis, setLayerVis] = React.useState({ PWJV:true, 'WCG Pours':true });   // per-layer markup show/hide
   const [showPours, setShowPours] = React.useState(false);   // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, stubColumn:false, sequence:'1', phase:'1', area:'A', mark:'' });
@@ -71,16 +74,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   React.useEffect(()=>{ const h=()=>setFull(!!document.fullscreenElement); document.addEventListener('fullscreenchange',h); return ()=>document.removeEventListener('fullscreenchange',h); },[]);
   function toggleFull(){ const el=rootRef.current; if(!el) return; if(document.fullscreenElement) document.exitFullscreen(); else if(el.requestFullscreen) el.requestFullscreen(); }
 
-  // Cap zoom so the transformed map layer (blueprint + pins + zones) never
-  // exceeds the browser's max compositing-layer area (~16M px² on Safari) — past
-  // that the GPU drops the layer and the map paints blank. Scale by screen size.
-  const maxScale = React.useMemo(()=>{
-    const pw = plan.pw||1, ph = plan.ph||1;
-    const byArea = Math.sqrt(11e6 / (pw*ph));   // keep layer area under ~11M px²
-    const byDim  = 8192 / Math.max(pw, ph);     // and under the 8192px per-dimension limit
-    return Math.max(3, Math.min(6.5, byArea, byDim));
-  },[plan]);
-  const clampS = s => Math.max(0.6, Math.min(maxScale, s));
+  // The map is sized/positioned explicitly (not CSS-transform-scaled), so it's
+  // painted within the viewport clip — no giant composited layer to blank out.
+  const clampS = s => Math.max(0.4, Math.min(8, s));
   function zoomAt(px, py, factor){ touched.current=true; setView(v=>{ const ns=clampS(v.s*factor); const k=ns/v.s; return { ...v, s:ns, tx: px-(px-v.tx)*k, ty: py-(py-v.ty)*k }; }); }
 
   // wheel zoom scoped to the map — but let panels (data-ui) scroll normally
@@ -242,23 +238,34 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     }
     window.addEventListener('keydown', onKey); return ()=>window.removeEventListener('keydown', onKey);
   },[manager, selId, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
-  function visibleKey(){ return embeds.length+'/'+filter+'/'+cat+'/'+seq+'/'+q; }
+  function visibleKey(){ return embeds.length+'/'+filter+'/'+cat+'/'+stub+'/'+q; }
 
   // ---- derived ----
   const sel = embeds.find(e=>e.id===selId)||null;
   const ql = q.trim().toLowerCase();
   const visible = embeds.filter(e=>
-    (filter==='all' || pinState(e,seq)===filter) &&
+    (filter==='all' || pinState(e)===filter) &&
     (cat==='all' || (cat==='kp' ? e.hasKnife : !e.hasKnife)) &&
     (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql)) );
-  const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e,seq)===k).length; return m; },{});
+  const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e)===k).length; return m; },{});
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
   const stubCount = embeds.filter(e=>e.hasStub).length;
   const labelsOn = view.s > 2.2;
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z=>z.id===selZone) || null;
   const pickSet = new Set(selPins);
+  // pour order #: WCG-Pours zones numbered by date (then created)
+  const pourNo = React.useMemo(()=>{
+    const ps = zones.filter(z=>zoneLayer(z)==='WCG Pours').slice()
+      .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999')||(a.createdAt||0)-(b.createdAt||0));
+    const m={}; ps.forEach((z,i)=>{ m[z.id]=i+1; }); return m;
+  },[zones]);
+  function clearNextPour(){
+    const ids = embeds.filter(e=>e.nextPour).map(e=>e.id);
+    if (ids.length) bulkUpdate(ids, { nextPour:false });
+    zones.filter(z=>z.nextPour).forEach(z=> onUpdateZone(z.id, { nextPour:false }));
+  }
 
   function commitZone(z){
     const pts = z.points ? z.points : rectToPoly(z);
@@ -269,7 +276,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     bulkUpdate(ids, patch);
     if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
     const bb = bboxOf(pts);
-    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:z.layer||'PWJV', date:z.date||'', ...(z.points?{points:z.points}:{}) };
+    const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:zoneLayer(z), date:z.date||'', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
   }
@@ -280,7 +287,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -288,14 +295,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         onMouseDown={e=>{ if(e.button===1) e.preventDefault(); }} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
         style={{ position:'relative', flex:1, overflow:'hidden', cursor, touchAction:'none', userSelect:'none', WebkitUserSelect:'none' }}>
 
-        <div style={{ position:'absolute', left:0, top:0, width:plan.pw, height:plan.ph,
-          transform:`translate(${view.tx}px,${view.ty}px) scale(${view.s})`, transformOrigin:'0 0',
+        <div style={{ position:'absolute', left:view.tx, top:view.ty, width:plan.pw*view.s, height:plan.ph*view.s,
           borderRadius:8, boxShadow:'0 0 0 1px rgba(150,170,205,.18), 0 30px 90px -30px rgba(0,0,0,.9)' }}>
           <div style={{ position:'absolute', inset:0, borderRadius:8, overflow:'hidden' }}><Blueprint grid={grid} /></div>
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
-            {renderZones.filter(z=>layerVis[z.layer||'PWJV']).map(z=>{
+            {renderZones.filter(z=>layerVis[zoneLayer(z)]).map(z=>{
               const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
@@ -327,20 +333,22 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </svg>
 
           {/* zone labels */}
-          {renderZones.filter(z=>layerVis[z.layer||'PWJV']).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+          {renderZones.filter(z=>layerVis[zoneLayer(z)]).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
-            const n=embeds.filter(e=>pointInPoly(e.nx,e.ny,zonePts(z))).length;   // live count — updates as the grid/embeds change
-            const lbl=`${z.nextPour?'NEXT · ':''}${seqLabel(z.pour)} · Ph ${z.phase||'1'} · ${z.area} · ${n}${z.date?' · '+shortDate(z.date):''}${z.done?' ✓':''}`; return (
+            const isPour=zoneLayer(z)==='WCG Pours';
+            const lbl = isPour
+              ? `${z.nextPour?'NEXT · ':''}#${pourNo[z.id]||'?'}${z.date?' · '+shortDate(z.date):''}${z.done?' ✓':''}`
+              : `${seqLabel(z.pour)} · ${z.area}${z.done?' ✓':''}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
-              <span style={{ position:'absolute', top:0, left:0, transform:`scale(${Math.max(0.5, Math.min(1.05, 1/view.s))})`, transformOrigin:'0 0',
-                background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:8.5, fontWeight:700,
-                padding:'1px 5px', borderRadius:'3px 0 3px 0', whiteSpace:'nowrap' }}>{lbl}</span>
+              <span style={{ position:'absolute', top:0, left:0, transformOrigin:'0 0',
+                background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,
+                padding:'1px 6px', borderRadius:'3px 0 3px 0', whiteSpace:'nowrap' }}>{lbl}</span>
             </div>
           ); })}
 
           {/* pins */}
           {visible.map(e=>{
-            const st=pinState(e,seq); const col=STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
+            const st=pinState(e); const col=STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
             const dp = dragPins && dragPins[e.id]; const moving = !!dp; const px = moving?dp.nx:e.nx, py = moving?dp.ny:e.ny;
             const draggable = drawMode==='off';                          // click a pin → drag to move; click without moving → select
             return (
@@ -354,7 +362,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
                   pdrag.current={ ids, base, sf, hitId:e.id, moved:false, last:null }; } : undefined}
                 style={{ position:'absolute', left:px*100+'%', top:py*100+'%', width:0, height:0, zIndex:(on||picked||moving)?5:1,
                   cursor: draggable?(moving?'grabbing':'grab'):'pointer' }}>
-                <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, cursor:'pointer' }}>
+                <div style={{ transform:'translate(-50%,-50%)', transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, cursor:'pointer' }}>
                   <span style={{ position:'relative', width:on?16:12, height:on?16:12, borderRadius:'50%', background:col,
                     border:'2px solid '+(on?'#fff':'rgba(8,11,16,.85)'),
                     boxShadow: picked?`0 0 0 3px #fff, 0 1px 4px rgba(0,0,0,.6)`:`0 0 0 ${on?3:1.5}px ${col}55, 0 1px 4px rgba(0,0,0,.6)`,
@@ -376,7 +384,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {/* ghost preview — new embed following the cursor while placing */}
           {drawMode==='pin' && ghost && (
             <div style={{ position:'absolute', left:ghost.x*100+'%', top:ghost.y*100+'%', width:0, height:0, pointerEvents:'none', zIndex:6 }}>
-              <div style={{ transform:`translate(-50%,-50%) scale(${1/view.s})`, transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:.75 }}>
+              <div style={{ transform:'translate(-50%,-50%)', transformOrigin:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:.75 }}>
                 <span style={{ position:'relative', width:13, height:13, borderRadius:'50%', background:T.color.amberHot, border:'2px dashed #fff', boxShadow:'0 0 10px rgba(166,160,255,.7)' }}>
                   {place.knifePlate && <span style={{ position:'absolute', top:-5, left:-5, width:7, height:7, background:T.color.blue, border:'1.5px solid #0C111A', transform:'rotate(45deg)' }} />}
                   {place.stubColumn && <span style={{ position:'absolute', bottom:-5, left:-5, width:7, height:7, background:'#FF9650', border:'1.5px solid #0C111A' }} />}
@@ -452,13 +460,13 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT':(tool==='select'?' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT':' · DRAG TO PAN')}
         </div>
 
-        {sel && <PinDetail key={sel.id} embed={sel} seq={seq} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
+        {sel && <PinDetail key={sel.id} embed={sel} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
           manager={manager} onDelete={manager?()=>{ requestDeletePins([sel.id]); setSelId(null); }:null} />}
         {editZone && <ZoneEditor zone={editZone} onCancel={()=>setEditZone(null)} onApply={commitZone}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}
         {gridMode && manager && <GridEditor grid={grid} onClose={()=>setGridMode(false)} onSave={(cfg)=>{ onSaveGrid(cfg); setGridMode(false); }} />}
         {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone}
-          onUpdateZone={onUpdateZone} onClose={()=>setShowPours(false)} onGoto={(z)=>{ focusZone(z); if(isPhone) setShowPours(false); }} />}
+          onUpdateZone={onUpdateZone} onClose={()=>setShowPours(false)} onClearNextPour={clearNextPour} onGoto={(z)=>{ focusZone(z); if(isPhone) setShowPours(false); }} />}
         {confirm && <ConfirmDialog message={confirm.message} onYes={confirm.onYes} onNo={()=>setConfirm(null)} />}
       </div>
     </div>
@@ -485,9 +493,11 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+  const [fOpen,setFOpen] = React.useState(false);
+  const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', flexWrap:'wrap',
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', flexWrap:'wrap',
       borderBottom:'1px solid '+T.color.line, background:steelPlate('#141A24','#0E131B'), position:'relative', zIndex:6 }}>
       <div style={{ display:'flex', alignItems:'center', gap:9 }}>
         <Icon name={pourMode?'clipboard':'target'} size={18} style={{ color:T.color.amber }} />
@@ -496,29 +506,28 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,s
       <div style={{ width:1, height:24, background:T.color.line }} />
       {/* select / pan tool */}
       <Segmented size="sm" value={tool} onChange={setTool} options={[{value:'select',label:'Select'},{value:'pan',label:'Pan'}]} />
-      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        {!isPhone && <Kicker style={{ color:T.color.yellow }}>Current seq</Kicker>}
-        <Segmented size="sm" value={seq} onChange={setSeq} options={SEQUENCES.map(s=>({value:s,label:s}))} />
+      {/* filters — collapsed into one popover */}
+      <div style={{ position:'relative' }}>
+        <button onClick={()=>setFOpen(o=>!o)} title="Filters"
+          style={{ display:'flex', alignItems:'center', gap:6, height:30, padding:'0 11px', borderRadius:T.radius.md,
+            background: (fOpen||activeFilters)?'rgba(126,120,240,.18)':'rgba(0,0,0,.3)', border:'1px solid '+((fOpen||activeFilters)?'rgba(126,120,240,.6)':T.color.line),
+            color:(fOpen||activeFilters)?'#A6A0FF':T.color.steel200, fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em' }}>
+          <Icon name="filter" size={14}/>Filters{activeFilters?<span style={{ background:'#A6A0FF', color:'#0A0B16', borderRadius:8, fontSize:10, padding:'0 5px', fontFamily:T.font.mono }}>{activeFilters}</span>:null}
+        </button>
+        {fOpen && (
+          <div data-ui style={{ position:'absolute', top:36, left:0, zIndex:20, width:248, display:'flex', flexDirection:'column', gap:12,
+            background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:14, boxShadow:T.shadow.panel }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <Kicker>Filters</Kicker>
+              {activeFilters>0 && <button onClick={()=>{ setFilter('all'); setCat('all'); setStub('all'); }} style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>RESET</button>}
+            </div>
+            <div><Kicker>Show</Kicker><div style={{ marginTop:5 }}><Segmented size="sm" value={filter} onChange={setFilter}
+              options={[{value:'all',label:'All'},{value:'todo',label:'To do'},{value:'installed',label:'Done'},{value:'next',label:'Next'}]} /></div></div>
+            <div><Kicker>Knife plate</Kicker><div style={{ marginTop:5 }}><Segmented size="sm" value={cat} onChange={setCat} options={[{value:'all',label:'All'},{value:'kp',label:'Has KP'},{value:'nokp',label:'No KP'}]} /></div></div>
+            <div><Kicker>Stub column</Kicker><div style={{ marginTop:5 }}><Segmented size="sm" value={stub} onChange={setStub} options={[{value:'all',label:'All'},{value:'sc',label:'Has SC'},{value:'nosc',label:'No SC'}]} /></div></div>
+          </div>
+        )}
       </div>
-      {!isPhone && (
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <Kicker>Show</Kicker>
-          <Segmented size="sm" value={filter} onChange={setFilter}
-            options={[{value:'all',label:'All'},{value:'todo',label:'To do'},{value:'installed',label:'Done'},{value:'current',label:'Current'},{value:'next',label:'Next pour'}]} />
-        </div>
-      )}
-      {!isPhone && (
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <Kicker>Knife</Kicker>
-          <Segmented size="sm" value={cat} onChange={setCat} options={[{value:'all',label:'All'},{value:'kp',label:'Has KP'},{value:'nokp',label:'No KP'}]} />
-        </div>
-      )}
-      {!isPhone && (
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <Kicker>Stub</Kicker>
-          <Segmented size="sm" value={stub} onChange={setStub} options={[{value:'all',label:'All'},{value:'sc',label:'Has SC'},{value:'nosc',label:'No SC'}]} />
-        </div>
-      )}
       <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 10px', height:30 }}>
         <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Find mark…"
@@ -536,7 +545,7 @@ function MapToolbar({ seq,setSeq,filter,setFilter,cat,setCat,stub,setStub,tool,s
           <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={()=>setGridMode(g=>!g)}>Grid</Btn>
         </>}
         <div style={{ display:'flex', gap:4 }}>
-          {[['PWJV','126,120,240'],['WCG','82,230,224'],['Pours','245,194,75']].map(([L,rgb])=>{ const on=layerVis[L]; return (
+          {LAYERS.map(([L,rgb])=>{ const on=layerVis[L]; return (
             <button key={L} onClick={()=>setLayerVis(v=>({...v,[L]:!v[L]}))} title={(on?'Hide ':'Show ')+L+' markups'}
               style={{ display:'flex', alignItems:'center', gap:5, height:30, padding:'0 9px', borderRadius:T.radius.md,
                 background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.3)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line),
@@ -720,10 +729,11 @@ function GridRuler({ view, plan, box }){
 const CUP_LIVE_URL = 'https://dyap123.github.io/cup-dashboard/?view=live';
 function poursItems(z){ return (z.checklist && z.checklist.length) ? z.checklist : (window.PREPOUR_DEFAULT||[]).map(t=>({ text:t, done:false })); }
 
-function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto }){
+function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto, onClearNextPour }){
   const today = ()=> new Date().toISOString().slice(0,10);
-  const pours = zones.filter(z=>(z.layer||'PWJV')==='Pours')
+  const pours = zones.filter(z=>zoneLayer(z)==='WCG Pours')
     .sort((a,b)=> (a.date||'9999').localeCompare(b.date||'9999') || (a.createdAt||0)-(b.createdAt||0));
+  const anyNext = zones.some(z=>z.nextPour) || embeds.some(e=>e.nextPour);
   return (
     <div data-ui style={{ position:'absolute', top:0, right:0, bottom:0, width:isPhone?'100%':360, zIndex:20, display:'flex', flexDirection:'column',
       background:steelPlate('#141B26','#0E131B'), borderLeft:'1px solid '+T.color.line, boxShadow:'-20px 0 60px -30px rgba(0,0,0,.9)' }}>
@@ -734,10 +744,16 @@ function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone
         </div>
         <button onClick={onClose} style={{ color:T.color.steel400 }}><Icon name="close" size={16}/></button>
       </div>
+      {manager && anyNext && (
+        <div style={{ padding:'9px 16px', borderBottom:'1px solid '+T.color.line, display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, background:'rgba(82,230,224,.06)' }}>
+          <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.cyan }}>Next-pour tags active</span>
+          <Btn size="sm" kind="ghost" icon="close" onClick={onClearNextPour}>Clear next-pour</Btn>
+        </div>
+      )}
       <div style={{ flex:1, overflowY:'auto', padding:'10px 12px 16px' }}>
         {pours.length===0 && <div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400, padding:'14px 8px', lineHeight:1.6 }}>
-          No pours yet. Draw a <b style={{color:'#fff'}}>Box</b> or <b style={{color:'#fff'}}>Polygon</b> on the map and set its layer to <b style={{color:'#fff'}}>Pours</b> — it shows here with a pre-pour checklist.</div>}
-        {pours.map(z=> <PourRow key={z.id} z={z} manager={manager} user={user} today={today} onUpdateZone={onUpdateZone} onGoto={onGoto} />)}
+          No pours yet. Draw a <b style={{color:'#fff'}}>Box</b> or <b style={{color:'#fff'}}>Polygon</b> on the map and set its layer to <b style={{color:'#fff'}}>WCG Pours</b> — it shows here with a pre-pour checklist.</div>}
+        {pours.map((z,i)=> <PourRow key={z.id} z={z} n={i+1} manager={manager} user={user} today={today} onUpdateZone={onUpdateZone} onGoto={onGoto} />)}
       </div>
     </div>
   );
@@ -747,14 +763,14 @@ const POUR_STATUS = ['PENDING','ORDERED','COMPLETE'];
 const POUR_STATUS_RGB = { PENDING:'59,130,246', ORDERED:'245,158,11', COMPLETE:'47,214,166' };  // matches CUP dashboard
 function pourStatus(z){ return z.status || (z.done ? 'COMPLETE' : 'PENDING'); }
 
-function PourRow({ z, manager, user, today, onUpdateZone, onGoto }){
+function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
   const [exp, setExp] = React.useState(false);
   const items = poursItems(z);
   const doneN = items.filter(i=>i.done).length;
   const status = pourStatus(z);
   const gc = z.nextPour ? '82,230,224' : (POUR_STATUS_RGB[status] || z.color || '245,194,75');
   const mix = z.mix || {};
-  const title = `${seqLabel(z.pour)} · Area ${z.area}${z.date?' · '+shortDate(z.date):''}`;
+  const title = `#${n}${z.date?' · '+shortDate(z.date):''}`;
   const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
   function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
   function toggle(i){ const it=items[i]; writeItems(items.map((x,k)=> k===i ? (it.done?{...x,done:false,by:null,at:null}:{...x,done:true,by:user.name,at:today()}) : x)); }
@@ -783,9 +799,22 @@ function PourRow({ z, manager, user, today, onUpdateZone, onGoto }){
                 background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.25)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line), color:on?`rgb(${rgb})`:T.color.steel400 }}>{s}</button>
             ); })}
           </div>
-          {(mix.psi || mix.slump || mix.aggregate || mix.lc3 || +z.cy) ? (
+          {/* pour date + CY — editable here or on the CUP dashboard */}
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ flex:1 }}>
+              <DatePopover value={z.date||''} disabled={!manager} onChange={d=>onUpdateZone(z.id,{ date:d })} />
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 9px', height:34 }}>
+              {manager
+                ? <input type="number" min="0" step="1" defaultValue={+z.cy||0} onFocus={e=>e.target.select()}
+                    onBlur={e=>{ const v=+e.target.value||0; if(v!==(+z.cy||0)) onUpdateZone(z.id,{ cy:v }); }}
+                    style={{ background:'transparent', border:'none', outline:'none', color:'#34D399', fontFamily:T.font.mono, fontWeight:700, fontSize:14, width:54, textAlign:'right' }} />
+                : <span style={{ color:'#34D399', fontFamily:T.font.mono, fontWeight:700, fontSize:14 }}>{+z.cy||0}</span>}
+              <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>CY</span>
+            </div>
+          </div>
+          {(mix.psi || mix.slump || mix.aggregate || mix.lc3) ? (
             <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 12px', fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel300, padding:'2px 2px 4px' }}>
-              {+z.cy ? <span><span style={{color:T.color.steel400}}>CY </span>{+z.cy}</span> : null}
               {mix.psi ? <span><span style={{color:T.color.steel400}}>PSI </span>{mix.psi}</span> : null}
               {mix.slump ? <span><span style={{color:T.color.steel400}}>Slump </span>{mix.slump}</span> : null}
               {mix.aggregate ? <span><span style={{color:T.color.steel400}}>Agg </span>{mix.aggregate}</span> : null}

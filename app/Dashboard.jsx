@@ -74,7 +74,7 @@ function Dashboard({ embeds, zones=[], isPhone }){
                       <span style={{ minWidth:0 }}>
                         <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14 }}>{g.key}</span>
                         {g.date && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.cyan, marginLeft:8 }}>{window.shortDate(g.date)}</span>}
-                        {g.layer==='WCG' && <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, marginLeft:6 }}>WCG</span>}
+                        {(g.layer==='WCG'||g.layer==='Pours'||g.layer==='WCG Pours') && <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, marginLeft:6 }}>WCG Pours</span>}
                       </span>
                       <span style={{ fontFamily:T.font.mono, fontSize:13, color: g.done===g.total&&g.total>0?T.color.green:T.color.steel200 }}>{g.done}/{g.total} set</span>
                     </div>

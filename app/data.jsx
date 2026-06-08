@@ -134,10 +134,9 @@ function buildInventory(){
 const INVENTORY = buildInventory();
 
 // ---- derived helpers ----------------------------------------------------
-function pinState(e, currentSeq){
+function pinState(e){
   if (e.installed) return 'installed';
-  if (e.nextPour) return 'next';                                  // pink — tagged as next pour (via a zone)
-  if (currentSeq && e.sequence === currentSeq) return 'current';  // yellow — current sequence
+  if (e.nextPour) return 'next';                  // cyan — tagged as next pour (via a zone)
   return 'todo';                                  // knife plate is an attribute (e.hasKnife), not a status
 }
 function kpis(embeds){
