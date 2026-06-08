@@ -44,7 +44,14 @@ function App(){
     window.fb.get('users').then(v=>{ if(!v||!Object.keys(v).length){ CREW.forEach(c=>window.fb.set('users/'+c.id,{...c,updates:0})); } });
   },[]);
 
-  const embeds = React.useMemo(()=> Object.entries(pins).map(([k,p])=>pinToEmbed(k,p)).filter(e=>e.mark), [pins, grid]);
+  const embeds = React.useMemo(()=>{
+    const base = Object.entries(pins).map(([k,p])=>pinToEmbed(k,p)).filter(e=>e.mark);
+    // "next pour" highlight is derived live from any zone tagged nextPour (no stale pin flags)
+    const npPolys = (typeof zonePts==='function')
+      ? (zones||[]).filter(z=>z.nextPour).map(z=>zonePts(z)) : [];
+    base.forEach(e=>{ e.nextPour = npPolys.length>0 && npPolys.some(pts=>pointInPoly(e.nx,e.ny,pts)); });
+    return base;
+  }, [pins, zones, grid]);
 
   function saveGrid(cfg){ setGridCfg(cfg); setGrid(cfg); window.fb.set('grid', cfg); }
 

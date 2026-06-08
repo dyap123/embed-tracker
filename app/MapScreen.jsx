@@ -262,18 +262,15 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const m={}; ps.forEach((z,i)=>{ m[z.id]=i+1; }); return m;
   },[zones]);
   function clearNextPour(){
-    const ids = embeds.filter(e=>e.nextPour).map(e=>e.id);
-    if (ids.length) bulkUpdate(ids, { nextPour:false });
+    // highlight is derived from zones now — clearing the tag instantly un-highlights the embeds
     zones.filter(z=>z.nextPour).forEach(z=> onUpdateZone(z.id, { nextPour:false }));
   }
 
   function commitZone(z){
     const pts = z.points ? z.points : rectToPoly(z);
     const ids = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts)).map(e=>e.id);
-    const patch = {};
-    if (z.assign){ patch.area=z.area; patch.sequence=z.pour; patch.phase=z.phase||'1'; patch.pour=`${z.area}·P${z.pour}`; }  // only if asked
-    patch.nextPour = !!z.nextPour;                         // tag / untag everything inside as the next pour
-    bulkUpdate(ids, patch);
+    // nextPour highlight is derived live from the zone (no pin stamping) — only assign rewrites pins
+    if (z.assign){ bulkUpdate(ids, { area:z.area, sequence:z.pour, phase:z.phase||'1', pour:`${z.area}·P${z.pour}` }); }
     if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
     const bb = bboxOf(pts);
     const payload = { ...bb, area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:zoneLayer(z), date:z.date||'', ...(z.points?{points:z.points}:{}) };
@@ -340,14 +337,14 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
               // prominent numbered badge at the zone centre — easy to tell which pour is which
               return (
                 <div key={'lb'+z.id} style={{ position:'absolute', left:(bb.x+bb.w/2)*100+'%', top:(bb.y+bb.h/2)*100+'%',
-                  transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                  <span style={{ display:'flex', alignItems:'baseline', gap:3, background:`rgb(${gc})`, color:'#06140e',
-                    fontFamily:T.font.display, fontWeight:800, fontSize:24, lineHeight:1, padding:'4px 13px 5px', borderRadius:T.radius.pill,
-                    border:'2px solid rgba(255,255,255,.7)', boxShadow:'0 3px 10px rgba(0,0,0,.55)' }}>
-                    <span style={{ fontSize:15, fontWeight:700, opacity:.7 }}>#</span>{pourNo[z.id]||'?'}{z.done?<span style={{ fontSize:16, marginLeft:3 }}>✓</span>:null}
+                  transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                  <span style={{ display:'inline-flex', alignItems:'baseline', gap:1, background:'rgba(10,14,20,.72)', color:`rgb(${gc})`,
+                    fontFamily:T.font.display, fontWeight:700, fontSize:14, lineHeight:1, padding:'3px 9px', borderRadius:T.radius.md,
+                    border:`1px solid rgba(${gc},.5)` }}>
+                    <span style={{ fontSize:10, opacity:.6 }}>#</span>{pourNo[z.id]||'?'}{z.done?<span style={{ fontSize:11, marginLeft:3, color:'#47D6A6' }}>✓</span>:null}
                   </span>
-                  {(z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:11, fontWeight:700, color:'#fff',
-                    background:'rgba(8,11,16,.82)', padding:'2px 7px', borderRadius:6, whiteSpace:'nowrap', border:`1px solid rgba(${gc},.5)` }}>
+                  {(z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:9, fontWeight:600, color:T.color.steel300,
+                    background:'rgba(10,14,20,.62)', padding:'1px 6px', borderRadius:5, whiteSpace:'nowrap' }}>
                     {z.nextPour?'NEXT':''}{z.nextPour&&z.date?' · ':''}{z.date?shortDate(z.date):''}</span>}
                 </div>
               );
