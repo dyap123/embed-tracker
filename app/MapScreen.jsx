@@ -336,9 +336,23 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           {renderZones.filter(z=>layerVis[zoneLayer(z)]).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
             const isPour=zoneLayer(z)==='WCG Pours';
-            const lbl = isPour
-              ? `${z.nextPour?'NEXT · ':''}#${pourNo[z.id]||'?'}${z.date?' · '+shortDate(z.date):''}${z.done?' ✓':''}`
-              : `${seqLabel(z.pour)} · ${z.area}${z.done?' ✓':''}`; return (
+            if (isPour){
+              // prominent numbered badge at the zone centre — easy to tell which pour is which
+              return (
+                <div key={'lb'+z.id} style={{ position:'absolute', left:(bb.x+bb.w/2)*100+'%', top:(bb.y+bb.h/2)*100+'%',
+                  transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+                  <span style={{ display:'flex', alignItems:'baseline', gap:3, background:`rgb(${gc})`, color:'#06140e',
+                    fontFamily:T.font.display, fontWeight:800, fontSize:24, lineHeight:1, padding:'4px 13px 5px', borderRadius:T.radius.pill,
+                    border:'2px solid rgba(255,255,255,.7)', boxShadow:'0 3px 10px rgba(0,0,0,.55)' }}>
+                    <span style={{ fontSize:15, fontWeight:700, opacity:.7 }}>#</span>{pourNo[z.id]||'?'}{z.done?<span style={{ fontSize:16, marginLeft:3 }}>✓</span>:null}
+                  </span>
+                  {(z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:11, fontWeight:700, color:'#fff',
+                    background:'rgba(8,11,16,.82)', padding:'2px 7px', borderRadius:6, whiteSpace:'nowrap', border:`1px solid rgba(${gc},.5)` }}>
+                    {z.nextPour?'NEXT':''}{z.nextPour&&z.date?' · ':''}{z.date?shortDate(z.date):''}</span>}
+                </div>
+              );
+            }
+            const lbl = `${seqLabel(z.pour)} · ${z.area}${z.done?' ✓':''}`; return (
             <div key={'lb'+z.id} style={{ position:'absolute', left:bb.x*100+'%', top:bb.y*100+'%', pointerEvents:'none' }}>
               <span style={{ position:'absolute', top:0, left:0, transformOrigin:'0 0',
                 background:`rgba(${gc},1)`, color:'#06140e', fontFamily:T.font.mono, fontSize:11, fontWeight:700,

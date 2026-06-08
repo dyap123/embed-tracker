@@ -38,7 +38,7 @@ const EMBED_TYPES = [
   { key:'coupler', code:'CP', label:'Coupler',     w:0.14 },
   { key:'stub',    code:'SC', label:'Stub column', w:0.10 },
 ];
-const SEQUENCES = ['1','2','3','4','South Hall'];
+const SEQUENCES = ['1','2','3','4','South Hall','CUP'];
 const PHASES = ['1','2','3','4'];
 const AREAS = ['A','B','C','D'];
 // numeric sequences read "Seq 3"; named ones (South Hall) show as-is
