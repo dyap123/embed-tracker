@@ -71,7 +71,16 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   React.useEffect(()=>{ const h=()=>setFull(!!document.fullscreenElement); document.addEventListener('fullscreenchange',h); return ()=>document.removeEventListener('fullscreenchange',h); },[]);
   function toggleFull(){ const el=rootRef.current; if(!el) return; if(document.fullscreenElement) document.exitFullscreen(); else if(el.requestFullscreen) el.requestFullscreen(); }
 
-  const clampS = s => Math.max(0.6, Math.min(6.5, s));
+  // Cap zoom so the transformed map layer (blueprint + pins + zones) never
+  // exceeds the browser's max compositing-layer area (~16M px² on Safari) — past
+  // that the GPU drops the layer and the map paints blank. Scale by screen size.
+  const maxScale = React.useMemo(()=>{
+    const pw = plan.pw||1, ph = plan.ph||1;
+    const byArea = Math.sqrt(11e6 / (pw*ph));   // keep layer area under ~11M px²
+    const byDim  = 8192 / Math.max(pw, ph);     // and under the 8192px per-dimension limit
+    return Math.max(3, Math.min(6.5, byArea, byDim));
+  },[plan]);
+  const clampS = s => Math.max(0.6, Math.min(maxScale, s));
   function zoomAt(px, py, factor){ touched.current=true; setView(v=>{ const ns=clampS(v.s*factor); const k=ns/v.s; return { ...v, s:ns, tx: px-(px-v.tx)*k, ty: py-(py-v.ty)*k }; }); }
 
   // wheel zoom scoped to the map — but let panels (data-ui) scroll normally
