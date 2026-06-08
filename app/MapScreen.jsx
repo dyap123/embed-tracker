@@ -734,24 +734,32 @@ function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone
   );
 }
 
+const POUR_STATUS = ['PENDING','ORDERED','COMPLETE'];
+const POUR_STATUS_RGB = { PENDING:'59,130,246', ORDERED:'245,158,11', COMPLETE:'47,214,166' };  // matches CUP dashboard
+function pourStatus(z){ return z.status || (z.done ? 'COMPLETE' : 'PENDING'); }
+
 function PourRow({ z, manager, user, today, onUpdateZone, onGoto }){
   const [exp, setExp] = React.useState(false);
   const items = poursItems(z);
   const doneN = items.filter(i=>i.done).length;
-  const gc = z.done ? '47,214,166' : z.nextPour ? '82,230,224' : (z.color||'245,194,75');
+  const status = pourStatus(z);
+  const gc = z.nextPour ? '82,230,224' : (POUR_STATUS_RGB[status] || z.color || '245,194,75');
+  const mix = z.mix || {};
   const title = `${seqLabel(z.pour)} · Area ${z.area}${z.date?' · '+shortDate(z.date):''}`;
+  const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
   function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
   function toggle(i){ const it=items[i]; writeItems(items.map((x,k)=> k===i ? (it.done?{...x,done:false,by:null,at:null}:{...x,done:true,by:user.name,at:today()}) : x)); }
   function rename(i,text){ writeItems(items.map((x,k)=> k===i?{...x,text}:x)); }
   function remove(i){ writeItems(items.filter((_,k)=>k!==i)); }
   function add(){ writeItems([...items, { text:'New item', done:false }]); }
+  function setStatus(s){ onUpdateZone(z.id, { status:s, done: s==='COMPLETE' }); }   // mirror CUP <-> embed
   return (
     <div style={{ border:'1px solid '+T.color.line, borderRadius:T.radius.lg, marginBottom:9, overflow:'hidden', background:'rgba(0,0,0,.18)' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 12px' }}>
         <span style={{ width:9, height:9, borderRadius:2, flex:'0 0 auto', background:`rgb(${gc})` }} />
         <div onClick={()=>setExp(e=>!e)} style={{ flex:1, minWidth:0, cursor:'pointer' }}>
           <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title}</div>
-          <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:2 }}>{z.nextPour?'NEXT · ':''}{z.cupPourId?('CUP '+z.cupPourId):'no CUP id'}</div>
+          <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:2 }}>{sub}</div>
         </div>
         <button onClick={()=>onGoto&&onGoto(z)} title="Go to pour on map" style={{ color:T.color.cyan, padding:4 }}><Icon name="target" size={15}/></button>
         <span style={{ fontFamily:T.font.mono, fontSize:12, color: doneN===items.length&&items.length?T.color.green:T.color.steel300 }}>{doneN}/{items.length}</span>
@@ -759,6 +767,22 @@ function PourRow({ z, manager, user, today, onUpdateZone, onGoto }){
       </div>
       {exp && (
         <div style={{ padding:'2px 12px 13px', display:'flex', flexDirection:'column', gap:7 }}>
+          {/* pour status — synced with the CUP dashboard */}
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {POUR_STATUS.map(s=>{ const on=status===s; const rgb=POUR_STATUS_RGB[s]; return (
+              <button key={s} onClick={()=>setStatus(s)} style={{ flex:1, padding:'6px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:10.5, letterSpacing:'.04em',
+                background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.25)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line), color:on?`rgb(${rgb})`:T.color.steel400 }}>{s}</button>
+            ); })}
+          </div>
+          {(mix.psi || mix.slump || mix.aggregate || mix.lc3 || +z.cy) ? (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 12px', fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel300, padding:'2px 2px 4px' }}>
+              {+z.cy ? <span><span style={{color:T.color.steel400}}>CY </span>{+z.cy}</span> : null}
+              {mix.psi ? <span><span style={{color:T.color.steel400}}>PSI </span>{mix.psi}</span> : null}
+              {mix.slump ? <span><span style={{color:T.color.steel400}}>Slump </span>{mix.slump}</span> : null}
+              {mix.aggregate ? <span><span style={{color:T.color.steel400}}>Agg </span>{mix.aggregate}</span> : null}
+              {mix.lc3 ? <span style={{color:T.color.green}}>LC3 ✓</span> : null}
+            </div>
+          ) : null}
           {items.map((it,i)=>(
             <div key={i} style={{ display:'flex', alignItems:'center', gap:9 }}>
               <button onClick={()=>toggle(i)} title={it.done?'Uncheck':'Check'} style={{ width:22, height:22, flex:'0 0 auto', borderRadius:6, display:'grid', placeItems:'center',
