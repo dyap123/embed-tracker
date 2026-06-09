@@ -750,6 +750,20 @@ function GridRuler({ view, plan, box }){
 const CUP_LIVE_URL = 'https://dyap123.github.io/cup-dashboard/?view=live';
 function poursItems(z){ const stored = Array.isArray(z.checklist)?z.checklist:[]; const have=new Set(stored.map(i=>i&&i.text)); const merged=stored.slice();
   (window.PREPOUR_DEFAULT||[]).forEach(t=>{ if(!have.has(t)) merged.push({ text:t, done:false }); }); return merged; }
+// inspections are due the day before the pour
+function inspDueDate(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return ''; const dt=new Date(+m[1],+m[2]-1,+m[3]); dt.setDate(dt.getDate()-1);
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function inspDaysUntil(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return null; const d=new Date(+m[1],+m[2]-1,+m[3]); const n=new Date(); n.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.round((d-n)/86400000); }
+function inspDueInfo(z, doneN, total){
+  const due = inspDueDate(z && z.date); if(!due) return null;
+  const dleft = inspDaysUntil(due); const complete = total>0 && doneN===total;
+  let col = T.color.steel400, lbl = 'Due '+shortDate(due);
+  if (complete) col = T.color.green;
+  else if (dleft<0){ col=T.color.red; lbl='Overdue · '+shortDate(due); }
+  else if (dleft===0){ col=T.color.yellow; lbl='Due today'; }
+  else if (dleft===1){ col=T.color.yellow; lbl='Due tomorrow'; }
+  return { col, lbl };
+}
 
 function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto, onClearNextPour }){
   const today = ()=> new Date().toISOString().slice(0,10);
@@ -793,6 +807,7 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
   const gc = z.nextPour ? '82,230,224' : (POUR_STATUS_RGB[status] || z.color || '245,194,75');
   const mix = z.mix || {};
   const placed = hasGeom(z);
+  const dueInfo = inspDueInfo(z, doneN, items.length);
   const title = `${pourTitle(z,n)}${z.date?' · '+shortDate(z.date):''}`;
   const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (placed ? null : 'NOT PLACED'), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
   function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
@@ -809,6 +824,7 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
           <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title}</div>
           <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:2 }}>{sub}</div>
         </div>
+        {dueInfo && <span title="Inspections due (day before pour)" style={{ display:'inline-flex', alignItems:'center', gap:3, flex:'0 0 auto', fontFamily:T.font.mono, fontSize:9, fontWeight:700, color:dueInfo.col, background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, borderRadius:5, padding:'2px 5px', whiteSpace:'nowrap' }}><Icon name="calendar" size={10} style={{ color:dueInfo.col }}/>{dueInfo.lbl}</span>}
         {placed
           ? <button onClick={()=>onGoto&&onGoto(z)} title="Go to pour on map" style={{ color:T.color.cyan, padding:4 }}><Icon name="target" size={15}/></button>
           : <span title="Draw its box on the map to place it" style={{ color:T.color.amberHot, fontFamily:T.font.mono, fontSize:9, fontWeight:700, padding:'2px 5px', border:'1px solid rgba(245,194,75,.4)', borderRadius:5 }}>PLACE</span>}
@@ -846,6 +862,11 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
               {mix.lc3 ? <span style={{color:T.color.green}}>LC3 ✓</span> : null}
             </div>
           ) : null}
+          {/* pre-pour inspections — due the day before the pour */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginTop:2, paddingTop:7, borderTop:'1px solid '+T.color.lineSoft }}>
+            <span style={{ fontFamily:T.font.mono, fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:T.color.steel400 }}>Pre-pour {doneN}/{items.length}</span>
+            {dueInfo && <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontFamily:T.font.mono, fontSize:10, fontWeight:700, color:dueInfo.col }}><Icon name="calendar" size={11} style={{ color:dueInfo.col }}/>{dueInfo.lbl}</span>}
+          </div>
           {items.map((it,i)=>(
             <div key={i} style={{ display:'flex', alignItems:'center', gap:9 }}>
               <button onClick={()=>toggle(i)} title={it.done?'Uncheck':'Check'} style={{ width:22, height:22, flex:'0 0 auto', borderRadius:6, display:'grid', placeItems:'center',
