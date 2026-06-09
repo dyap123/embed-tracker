@@ -250,7 +250,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     (filter==='all' || pinState(e)===filter) &&
     (cat==='all' || (cat==='kp' ? e.hasKnife : !e.hasKnife)) &&
     (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
-    (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql)) );
+    (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql) || (e.hasStub && String(e.stubType||'').toLowerCase().includes(ql))) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e)===k).length; return m; },{});
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
   const stubCount = embeds.filter(e=>e.hasStub).length;
@@ -551,7 +551,7 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,draw
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 10px', height:30 }}>
         <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Find mark…"
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Find mark / stub type…"
           style={{ background:'transparent', border:'none', outline:'none', color:'#fff', fontFamily:T.font.mono, fontSize:12, width:isPhone?92:118 }} />
         {q && <button onClick={()=>setQ('')} style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
       </div>
