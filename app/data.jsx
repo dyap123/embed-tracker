@@ -179,7 +179,7 @@ function pinToEmbed(key, p){
 }
 
 /* default pre-pour checklist items (editable per pour) */
-const PREPOUR_DEFAULT = ['Bill Carr Surveyors','SME Bill Carr','Temperature sensors installed','ACC pre-pour checklist','LADBS inspection','Twining','Batch plant','WSP'];
+const PREPOUR_DEFAULT = ['Bill Carr Surveyors','SME Bill Carr','Temperature sensors installed','ACC pre-pour checklist','LADBS inspection','LADBS Soils Inspection','Twining','Batch plant','WSP'];
 // stub-column type suggestions (free-text still allowed) — replace with the real list
 const STUB_TYPES = [];
 window.STUB_TYPES = STUB_TYPES;
