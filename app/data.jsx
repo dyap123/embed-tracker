@@ -115,9 +115,9 @@ const RFI_SEED = [
 const CREW = [
   { id:'danzel', name:'Danzel Yap',     role:'PWJV · The GOAT 🐐',  pin:'050103', initials:'DY', installs:0, points:0, manager:true, goat:true },
   { id:'misael', name:'Misael Iniguez', role:"PWJV · Danzel's boss", pin:'050103', initials:'MI', installs:0, points:0, manager:true },
-  { id:'kate',   name:'Kate Schuck',    role:'APM · PWJV',          pin:null,     initials:'KS', installs:0, points:0 },
-  { id:'moises', name:'Moises Espinoza', role:'PE · PWJV',          pin:null,     initials:'ME', installs:0, points:0 },
-  { id:'freddy', name:'Freddy',         role:'PE · SME',            pin:null,     initials:'FR', installs:0, points:0 },
+  { id:'kate',   name:'Kate Schuck',    role:'APM · PWJV',          pin:'050103', initials:'KS', installs:0, points:0, manager:true },
+  { id:'moises', name:'Moises Espinoza', role:'PE · PWJV',          pin:'050103', initials:'ME', installs:0, points:0, manager:true },
+  { id:'freddy', name:'Freddy',         role:'PE · SME',            pin:'050103', initials:'FR', installs:0, points:0, manager:true },
 ];
 
 // ---- inventory ----------------------------------------------------------
@@ -174,12 +174,15 @@ function pinToEmbed(key, p){
     id: key, mark: p.embedId || '—', type: tp.key, typeLabel: tp.label, code: tp.code,
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
     sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
-    installed: !!p.installed, hasKnife: knife, hasStub: stub, nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
+    installed: !!p.installed, hasKnife: knife, hasStub: stub, stubType: p.stubType || '', nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
   };
 }
 
 /* default pre-pour checklist items (editable per pour) */
 const PREPOUR_DEFAULT = ['Bill Carr Surveyors','Temperature sensors installed','ACC pre-pour checklist','LADBS inspection','Twining','Batch plant','WSP'];
+// stub-column type suggestions (free-text still allowed) — replace with the real list
+const STUB_TYPES = [];
+window.STUB_TYPES = STUB_TYPES;
 window.PREPOUR_DEFAULT = PREPOUR_DEFAULT;
 
 /* short date for labels: 'YYYY-MM-DD' -> 'Mon D' (e.g. 'Jun 12') */

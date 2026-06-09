@@ -49,7 +49,7 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
         <div style={{ display:'flex', gap:6, marginTop:12, flexWrap:'wrap' }}>
           <Badge color={STATE[st].color} fill={st==='installed'}>{STATE[st].label}</Badge>
           {embed.hasKnife && <Badge color={T.color.blue}>Knife plate</Badge>}
-          {embed.hasStub && <Badge color="#FF9650">Stub column</Badge>}
+          {embed.hasStub && <Badge color="#FF9650">{embed.stubType ? 'Stub · '+embed.stubType : 'Stub column'}</Badge>}
           <Badge color={T.color.steel300}>{embed.pour}</Badge>
         </div>
         {celebrate && <Celebrate />}
@@ -77,6 +77,15 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
               <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14, color:embed.hasStub?'#FF9650':'#fff' }}>Stub column</span>
               <Toggle on={!!embed.hasStub} onChange={()=>updateEmbed(embed.id,{ stubColumn:!embed.hasStub })} />
             </div>
+            {embed.hasStub && (
+              <Field label="Stub column type">
+                <input defaultValue={embed.stubType||''} list="stubTypeList" placeholder="e.g. SC-1 / W-column / HSS"
+                  onBlur={e=>{ if(e.target.value!==(embed.stubType||'')) updateEmbed(embed.id,{ stubType:e.target.value }); }}
+                  onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur(); }}
+                  style={{ ...inputStyle, padding:'8px 10px', fontSize:13, fontFamily:T.font.mono, borderColor:'rgba(255,150,80,.45)' }} />
+                <datalist id="stubTypeList">{(window.STUB_TYPES||[]).map(t=><option key={t} value={t} />)}</datalist>
+              </Field>
+            )}
           </div>
         )}
 

@@ -368,7 +368,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
           {/* pins */}
           {visible.map(e=>{
-            const st=pinState(e); const col=STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
+            const st=pinState(e); const col=(e.hasStub && st!=='installed') ? '#FF9650' : STATE[st].color; const on=e.id===selId; const picked=pickSet.has(e.id);
             const dp = dragPins && dragPins[e.id]; const moving = !!dp; const px = moving?dp.nx:e.nx, py = moving?dp.ny:e.ny;
             const draggable = drawMode==='off';                          // click a pin → drag to move; click without moving → select
             return (
