@@ -44,6 +44,11 @@ function App(){
     window.fb.get('users').then(v=>{ if(!v||!Object.keys(v).length){ CREW.forEach(c=>window.fb.set('users/'+c.id,{...c,updates:0})); } });
   },[]);
 
+  // live grid-edit draft — while editing, the blueprint + embed snapping preview it
+  const [gridDraft, setGridDraft] = React.useState(null);
+  const effGrid = gridDraft || grid;
+  setGridCfg(effGrid);   // keep the global grid math (colX/rowY/gridIdx) in sync with the draft
+
   const embeds = React.useMemo(()=>{
     const base = Object.entries(pins).map(([k,p])=>pinToEmbed(k,p)).filter(e=>e.mark);
     // "next pour" highlight is derived live from any zone tagged nextPour (no stale pin flags)
@@ -51,9 +56,9 @@ function App(){
       ? (zones||[]).filter(z=>z.nextPour).map(z=>zonePts(z)) : [];
     base.forEach(e=>{ e.nextPour = npPolys.length>0 && npPolys.some(pts=>pointInPoly(e.nx,e.ny,pts)); });
     return base;
-  }, [pins, zones, grid]);
+  }, [pins, zones, gridDraft, grid]);
 
-  function saveGrid(cfg){ setGridCfg(cfg); setGrid(cfg); window.fb.set('grid', cfg); }
+  function saveGrid(cfg){ setGridDraft(null); setGridCfg(cfg||null); setGrid(cfg||null); window.fb.set('grid', cfg||null); }
 
   function flash(msg){ setToast(msg); clearTimeout(flash._t); flash._t=setTimeout(()=>setToast(null), 2600); }
   function track(kind){ const u=userRef.current; if(u&&u.id) window.fb.inc('users/'+u.id+'/updates',1); flash(remarkFor(kind)); }
@@ -110,7 +115,8 @@ function App(){
 
   const mapProps = { embeds, updateEmbed, bulkUpdate, user, isPhone, zones,
     onAddZone:addZone, onUpdateZone:updateZone, onRemoveZone:removeZone, onRestoreZone:restoreZone,
-    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall, grid, onSaveGrid:saveGrid };
+    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall,
+    grid:effGrid, savedGrid:grid, gridDraft, onGridDraft:setGridDraft, onSaveGrid:saveGrid };
   const screenEl = {
     map: <MapScreen {...mapProps} />,
     dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,

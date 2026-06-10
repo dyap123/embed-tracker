@@ -153,10 +153,10 @@ function kpis(embeds){
    (best-effort by relative position). */
 function gridIdx(p){
   const C=gridCols(), R=gridRows();
-  // snap to nearest gridline by the (possibly non-uniform) bay positions
-  const fc=cumFrac(GRID_CFG&&GRID_CFG.colW, C.length), fr=cumFrac(GRID_CFG&&GRID_CFG.rowH, R.length);
-  const near=(arr,v)=>{ let bi=0,bd=1e9; for(let i=0;i<arr.length;i++){ const d=Math.abs(arr[i]-v); if(d<bd){bd=d;bi=i;} } return bi; };
-  return [ near(fc, p.x||0), near(fr, p.y||0) ];
+  // snap to the nearest gridline by its ACTUAL blueprint position (colX/rowY include
+  // the plan margins + non-uniform bays — comparing to raw cumFrac was off by the margin)
+  const near=(fn,len,v)=>{ let bi=0,bd=1e9; for(let i=0;i<len;i++){ const d=Math.abs(fn(i)-v); if(d<bd){bd=d;bi=i;} } return bi; };
+  return [ near(colX, C.length, p.x||0), near(rowY, R.length, p.y||0) ];
 }
 function pinToEmbed(key, p){
   const C=gridCols(), R=gridRows();

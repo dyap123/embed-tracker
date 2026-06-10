@@ -19,7 +19,29 @@ function zonePts(z){ return isPoly(z)? z.points : rectToPoly(z); }
 function bboxOf(pts){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; pts.forEach(([x,y])=>{ x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y); }); return { x:x0, y:y0, w:x1-x0, h:y1-y0 }; }
 function pointInPoly(px,py,pts){ let c=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const [xi,yi]=pts[i],[xj,yj]=pts[j]; if(((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) c=!c; } return c; }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, onSaveGrid, pourMode }){
+/* ---- grid edit helpers ---- */
+function buildGridCfg(grid){
+  const cols=(grid&&grid.cols)?[...grid.cols]:[...gridCols()];
+  const rows=(grid&&grid.rows)?[...grid.rows]:[...gridRows()];
+  return { cols, rows,
+    colW:(grid&&grid.colW&&grid.colW.length===cols.length-1)?[...grid.colW]:Array(Math.max(0,cols.length-1)).fill(1),
+    rowH:(grid&&grid.rowH&&grid.rowH.length===rows.length-1)?[...grid.rowH]:Array(Math.max(0,rows.length-1)).fill(1),
+    plan:{...((grid&&grid.plan)||gridPlan())} };
+}
+const clampN=(v,a,b)=>Math.max(a,Math.min(b,v));
+// drag gridline `i` (axis 'col'|'row') to normalized position nf (0..1 over the blueprint)
+function setGridLine(cfg, axis, i, nf){
+  const isCol=axis==='col'; const arr=isCol?cfg.cols:cfg.rows; const wkey=isCol?'colW':'rowH';
+  const n=arr.length, pl=cfg.plan, lo=isCol?'x0':'y0', hi=isCol?'x1':'y1';
+  if(i<=0) return { ...cfg, plan:{ ...pl, [lo]:clampN(nf, 0, pl[hi]-0.02) } };
+  if(i>=n-1) return { ...cfg, plan:{ ...pl, [hi]:clampN(nf, pl[lo]+0.02, 1) } };
+  const f=cumFrac(cfg[wkey], n); const pf=(nf-pl[lo])/((pl[hi]-pl[lo])||1);
+  f[i]=clampN(pf, f[i-1]+0.004, f[i+1]-0.004);
+  const w=[]; for(let j=0;j<n-1;j++) w.push(Math.max(0.004, f[j+1]-f[j]));
+  return { ...cfg, [wkey]:w };
+}
+
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, savedGrid, gridDraft, onGridDraft, onSaveGrid, pourMode }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const [box, setBox] = React.useState({ w:1000, h:700 });
@@ -101,6 +123,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const vdrag = React.useRef(null);
   const sdrag = React.useRef(null);
   const pdrag = React.useRef(null);    // moving a placed pin {id, nx, ny, moved}
+  const gdrag = React.useRef(null);    // dragging a gridline {axis, i}
   function relXY(e){ const r=vpRef.current.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
   function toFrac(px,py){ return { fx:((px-view.tx)/view.s)/plan.pw, fy:((py-view.ty)/view.s)/plan.ph }; }
 
@@ -124,6 +147,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   }
   function onPointerMove(e){
     const {x,y}=relXY(e); const f=toFrac(x,y);
+    if (gdrag.current){ const g=gdrag.current; onGridDraft(setGridLine(gridDraft, g.axis, g.i, g.axis==='col'?f.fx:f.fy)); return; }
     if (drawMode==='pin'){ setGhost({ x:f.fx, y:f.fy }); return; }    // new embed follows the cursor
     if (pdrag.current){ const pd=pdrag.current; const dx=f.fx-pd.sf.fx, dy=f.fy-pd.sf.fy;
       const dp={}; pd.ids.forEach(id=>{ const b=pd.base[id]; if(b) dp[id]={ nx:b.nx+dx, ny:b.ny+dy }; });
@@ -135,6 +159,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (drag.current){ setView(v=>({ ...v, tx:drag.current.tx+(x-drag.current.x), ty:drag.current.ty+(y-drag.current.y) })); }
   }
   function onPointerUp(e){
+    if (gdrag.current){ gdrag.current=null; return; }
     if (pdrag.current){ const pd=pdrag.current; pdrag.current=null; setDragPins(null);
       if (pd.moved && pd.last){
         const prev = pd.ids.filter(id=>pd.base[id]).map(id=>({ id, x:pd.base[id].nx, y:pd.base[id].ny }));
@@ -293,7 +318,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -304,6 +329,24 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         <div style={{ position:'absolute', left:view.tx, top:view.ty, width:plan.pw*view.s, height:plan.ph*view.s,
           borderRadius:8, boxShadow:'0 0 0 1px rgba(150,170,205,.18), 0 30px 90px -30px rgba(0,0,0,.9)' }}>
           <div style={{ position:'absolute', inset:0, borderRadius:8, overflow:'hidden' }}><Blueprint grid={grid} /></div>
+
+          {/* gridline drag handles (while editing the grid) */}
+          {gridMode && gridDraft && (<>
+            {gridDraft.cols.map((c,i)=>{ const gx=colX(i); const edge=i===0||i===gridDraft.cols.length-1; return (
+              <div key={'gch'+i} onPointerDown={e=>{ e.stopPropagation(); try{vpRef.current.setPointerCapture(e.pointerId);}catch(_){}; gdrag.current={ axis:'col', i }; }}
+                title={`Column ${c} — drag`} style={{ position:'absolute', left:gx*100+'%', top:0, bottom:0, width:18, transform:'translateX(-50%)', cursor:'ew-resize', zIndex:8, display:'flex', justifyContent:'center' }}>
+                <div style={{ width:edge?3:2, height:'100%', background:edge?'rgba(245,194,75,.9)':'rgba(82,230,224,.7)' }} />
+                <div style={{ position:'absolute', top:2, background:edge?'#F5C24B':'#52E6E0', color:'#06140e', fontFamily:T.font.mono, fontSize:9, fontWeight:700, padding:'1px 4px', borderRadius:3, whiteSpace:'nowrap' }}>{c}</div>
+              </div>
+            ); })}
+            {gridDraft.rows.map((r,j)=>{ const gy=rowY(j); const edge=j===0||j===gridDraft.rows.length-1; return (
+              <div key={'grh'+j} onPointerDown={e=>{ e.stopPropagation(); try{vpRef.current.setPointerCapture(e.pointerId);}catch(_){}; gdrag.current={ axis:'row', j:j, i:j }; }}
+                title={`Row ${r} — drag`} style={{ position:'absolute', top:gy*100+'%', left:0, right:0, height:18, transform:'translateY(-50%)', cursor:'ns-resize', zIndex:8, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+                <div style={{ height:edge?3:2, width:'100%', background:edge?'rgba(245,194,75,.9)':'rgba(82,230,224,.7)' }} />
+                <div style={{ position:'absolute', left:2, background:edge?'#F5C24B':'#52E6E0', color:'#06140e', fontFamily:T.font.mono, fontSize:9, fontWeight:700, padding:'1px 4px', borderRadius:3, whiteSpace:'nowrap' }}>{r}</div>
+              </div>
+            ); })}
+          </>)}
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
@@ -485,7 +528,10 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         {editZone && <ZoneEditor zone={editZone} onCancel={()=>setEditZone(null)} onApply={commitZone}
           unplaced={zones.filter(z=>zoneLayer(z)==='WCG Pours' && !hasGeom(z))}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}
-        {gridMode && manager && <GridEditor grid={grid} onClose={()=>setGridMode(false)} onSave={(cfg)=>{ onSaveGrid(cfg); setGridMode(false); }} />}
+        {gridMode && manager && gridDraft && <GridEditor cfg={gridDraft} onChange={onGridDraft}
+          onClose={()=>{ setGridMode(false); onGridDraft(null); }}
+          onSave={()=>{ onSaveGrid(gridDraft); setGridMode(false); }}
+          onReset={()=>{ onSaveGrid(null); setGridMode(false); }} />}
         {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone}
           onUpdateZone={onUpdateZone} onClose={()=>setShowPours(false)} onClearNextPour={clearNextPour} onGoto={(z)=>{ focusZone(z); if(isPhone) setShowPours(false); }} />}
         {confirm && <ConfirmDialog message={confirm.message} onYes={confirm.onYes} onNo={()=>setConfirm(null)} />}
@@ -514,7 +560,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   const [fOpen,setFOpen] = React.useState(false);
   const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
@@ -563,7 +609,7 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,draw
         {manager && drawMode==='off' && <>
           <Btn size="sm" kind="ghost" icon="zone" onClick={()=>setDrawMode('rect')}>Box</Btn>
           <Btn size="sm" kind="ghost" icon="polygon" onClick={()=>setDrawMode('poly')}>Polygon</Btn>
-          <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={()=>setGridMode(g=>!g)}>Grid</Btn>
+          <Btn size="sm" kind={gridMode?'primary':'ghost'} icon="grid" onClick={onToggleGrid}>Grid</Btn>
         </>}
         <div style={{ display:'flex', gap:4 }}>
           {LAYERS.map(([L,rgb])=>{ const on=layerVis[L]; return (
@@ -624,36 +670,29 @@ function Legend({ counts, total, knifeCount, stubCount, onClose }){
 }
 
 /* ---- grid editor (CUP-style: add gridlines / rename / edit bay distances) ---- */
-function GridEditor({ grid, onClose, onSave }){
-  const init = React.useMemo(()=>{
-    const cols = (grid&&grid.cols)? [...grid.cols] : [...gridCols()];
-    const rows = (grid&&grid.rows)? [...grid.rows] : [...gridRows()];
-    return {
-      cols, rows,
-      colW: (grid&&grid.colW&&grid.colW.length===cols.length-1)? [...grid.colW] : Array(Math.max(0,cols.length-1)).fill(1),
-      rowH: (grid&&grid.rowH&&grid.rowH.length===rows.length-1)? [...grid.rowH] : Array(Math.max(0,rows.length-1)).fill(1),
-      plan: { ...((grid&&grid.plan)||gridPlan()) },
-    };
-  },[grid]);
-  const [cfg, setCfg] = React.useState(init);
-  React.useEffect(()=>setCfg(init),[init]);
-  const set = patch => setCfg(c=>({ ...c, ...patch }));
+function GridEditor({ cfg, onChange, onClose, onSave, onReset }){
+  const [tab, setTab] = React.useState('cols');   // 'cols' | 'rows' | 'plan'
+  const set = patch => onChange({ ...cfg, ...patch });
+  const cols = cfg.cols||[], rows = cfg.rows||[], colW = cfg.colW||[], rowH = cfg.rowH||[];
 
-  function addCol(){ const last=cfg.cols[cfg.cols.length-1]||'A'; const next = /^[A-Z]$/.test(last)? String.fromCharCode(Math.min(90,last.charCodeAt(0)+1)) : last+"'";
-    set({ cols:[...cfg.cols, next], colW:[...cfg.colW, 1] }); }
-  function delCol(){ if(cfg.cols.length<=2) return; set({ cols:cfg.cols.slice(0,-1), colW:cfg.colW.slice(0,-1) }); }
-  function addRow(){ const last=cfg.rows[cfg.rows.length-1]; const n=parseInt(last,10); const next=isNaN(n)? last+"'":String(n-1);
-    set({ rows:[...cfg.rows, next], rowH:[...cfg.rowH, 1] }); }
-  function delRow(){ if(cfg.rows.length<=2) return; set({ rows:cfg.rows.slice(0,-1), rowH:cfg.rowH.slice(0,-1) }); }
-  const lbl = (arr,i,key)=> (e)=>{ const v=[...cfg[key]]; v[i]=e.target.value; set({ [key]:v }); };
-  const bay = (arr,i,key)=> (e)=>{ const v=[...cfg[key]]; v[i]=Math.max(0.1,+e.target.value||0.1); set({ [key]:v }); };
+  function addCol(){ const last=cols[cols.length-1]||'A'; const next = /^[A-Z]$/.test(last)? String.fromCharCode(Math.min(90,last.charCodeAt(0)+1)) : last+"'";
+    set({ cols:[...cols, next], colW:[...colW, colW[colW.length-1]||1] }); }
+  function delCol(){ if(cols.length<=2) return; set({ cols:cols.slice(0,-1), colW:colW.slice(0,-1) }); }
+  function addRow(){ const last=rows[rows.length-1]; const n=parseInt(last,10); const next=isNaN(n)? last+"'":String(n-1);
+    set({ rows:[...rows, next], rowH:[...rowH, rowH[rowH.length-1]||1] }); }
+  function delRow(){ if(rows.length<=2) return; set({ rows:rows.slice(0,-1), rowH:rowH.slice(0,-1) }); }
+  const lbl = (key,i)=> (e)=>{ const v=[...cfg[key]]; v[i]=e.target.value; set({ [key]:v }); };
+  const bay = (key,i)=> (e)=>{ const v=[...cfg[key]]; v[i]=Math.max(0.05,+e.target.value||0.05); set({ [key]:v }); };
   const margin = (k)=> (e)=> set({ plan:{ ...cfg.plan, [k]:Math.max(0,Math.min(1,+e.target.value||0)) } });
+  function evenBays(key, n){ set({ [key]: Array(Math.max(0,n-1)).fill(1) }); }
 
   const fld = { ...inputStyle, padding:'6px 8px', fontSize:12.5, width:'100%' };
-  const sec = { fontFamily:T.font.mono, fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:T.color.steel400, margin:'14px 0 8px' };
+  const sec = { fontFamily:T.font.mono, fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:T.color.steel400, margin:'4px 0 10px' };
+  const tabBtn = (k,label)=> <button key={k} onClick={()=>setTab(k)} style={{ flex:1, padding:'7px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.04em',
+    background:tab===k?'rgba(126,120,240,.2)':'rgba(0,0,0,.25)', border:'1px solid '+(tab===k?'rgba(126,120,240,.6)':T.color.line), color:tab===k?'#A6A0FF':T.color.steel400 }}>{label}</button>;
 
   return (
-    <div data-ui style={{ position:'absolute', top:0, right:0, bottom:0, width:isPhoneNow()?'100%':360, zIndex:20, display:'flex', flexDirection:'column',
+    <div data-ui style={{ position:'absolute', top:0, right:0, bottom:0, width:isPhoneNow()?'100%':344, zIndex:20, display:'flex', flexDirection:'column',
       background:steelPlate('#141B26','#0E131B'), borderLeft:'1px solid '+T.color.line, boxShadow:'-20px 0 60px -30px rgba(0,0,0,.9)' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', borderBottom:'1px solid '+T.color.line }}>
         <div style={{ display:'flex', alignItems:'center', gap:9 }}>
@@ -663,56 +702,72 @@ function GridEditor({ grid, onClose, onSave }){
         <button onClick={onClose} style={{ color:T.color.steel400 }}><Icon name="close" size={16}/></button>
       </div>
 
+      <div style={{ padding:'10px 16px 0', display:'flex', gap:6 }}>{tabBtn('cols','Columns')}{tabBtn('rows','Rows')}{tabBtn('plan','Margins')}</div>
+      <div style={{ padding:'8px 16px 4px', fontFamily:T.font.mono, fontSize:10.5, color:T.color.cyan, display:'flex', alignItems:'center', gap:6 }}>
+        <Icon name="target" size={12}/> Drag the lines on the map to align them to the embeds.
+      </div>
+
       <div style={{ flex:1, overflowY:'auto', padding:'4px 16px 16px' }}>
-        <div style={sec}>Plan margins (0–1)</div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-          {[['x0','Left'],['x1','Right'],['y0','Top'],['y1','Bottom']].map(([k,l])=>(
-            <label key={k} style={{ display:'flex', flexDirection:'column', gap:4 }}>
-              <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400 }}>{l}</span>
-              <input type="number" step="0.01" value={cfg.plan[k]} onChange={margin(k)} style={fld} />
-            </label>
+        {tab==='plan' && (<>
+          <div style={sec}>Plan margins (0–1) — outer grid box</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            {[['x0','Left'],['x1','Right'],['y0','Top'],['y1','Bottom']].map(([k,l])=>(
+              <label key={k} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                <span style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400 }}>{l}</span>
+                <input type="number" step="0.005" value={cfg.plan[k]} onChange={margin(k)} style={fld} />
+              </label>
+            ))}
+          </div>
+          <p style={{ fontSize:11.5, color:T.color.steel300, marginTop:12, lineHeight:1.5 }}>The outer (amber) lines are the plan box — drag them on the map or set them here.</p>
+        </>)}
+
+        {tab==='cols' && (<>
+          <div style={{ ...sec, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>Columns ({cols.length})</span>
+            <span style={{ display:'flex', gap:6 }}>
+              <button title="Even spacing" onClick={()=>evenBays('colW', cols.length)} style={miniBtn}><Icon name="grid" size={12}/></button>
+              <button onClick={delCol} style={miniBtn}><Icon name="minus" size={13}/></button>
+              <button onClick={addCol} style={miniBtn}><Icon name="plus" size={13}/></button>
+            </span>
+          </div>
+          {cols.map((c,i)=>(
+            <div key={'c'+i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <span style={{ width:16, fontFamily:T.font.mono, fontSize:10, color:T.color.steel400, textAlign:'right' }}>{i+1}</span>
+              <input value={c} onChange={lbl('cols',i)} style={{ ...fld, width:60 }} />
+              {i<cols.length-1 && <>
+                <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>↔</span>
+                <input type="number" step="0.25" value={colW[i]} onChange={bay('colW',i)} style={{ ...fld, flex:1 }} title="Bay width to next column" />
+              </>}
+            </div>
           ))}
-        </div>
+        </>)}
 
-        <div style={{ ...sec, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span>Columns ({cfg.cols.length})</span>
-          <span style={{ display:'flex', gap:6 }}>
-            <button onClick={delCol} style={miniBtn}><Icon name="minus" size={13}/></button>
-            <button onClick={addCol} style={miniBtn}><Icon name="plus" size={13}/></button>
-          </span>
-        </div>
-        {cfg.cols.map((c,i)=>(
-          <div key={'c'+i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-            <input value={c} onChange={lbl(cfg.cols,i,'cols')} style={{ ...fld, width:64 }} />
-            {i<cfg.cols.length-1 && <>
-              <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>↔ bay</span>
-              <input type="number" step="0.5" value={cfg.colW[i]} onChange={bay(cfg.colW,i,'colW')} style={{ ...fld, width:80 }} />
-            </>}
+        {tab==='rows' && (<>
+          <div style={{ ...sec, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>Rows ({rows.length})</span>
+            <span style={{ display:'flex', gap:6 }}>
+              <button title="Even spacing" onClick={()=>evenBays('rowH', rows.length)} style={miniBtn}><Icon name="grid" size={12}/></button>
+              <button onClick={delRow} style={miniBtn}><Icon name="minus" size={13}/></button>
+              <button onClick={addRow} style={miniBtn}><Icon name="plus" size={13}/></button>
+            </span>
           </div>
-        ))}
-
-        <div style={{ ...sec, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span>Rows ({cfg.rows.length})</span>
-          <span style={{ display:'flex', gap:6 }}>
-            <button onClick={delRow} style={miniBtn}><Icon name="minus" size={13}/></button>
-            <button onClick={addRow} style={miniBtn}><Icon name="plus" size={13}/></button>
-          </span>
-        </div>
-        {cfg.rows.map((r,i)=>(
-          <div key={'r'+i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-            <input value={r} onChange={lbl(cfg.rows,i,'rows')} style={{ ...fld, width:64 }} />
-            {i<cfg.rows.length-1 && <>
-              <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>↕ bay</span>
-              <input type="number" step="0.5" value={cfg.rowH[i]} onChange={bay(cfg.rowH,i,'rowH')} style={{ ...fld, width:80 }} />
-            </>}
-          </div>
-        ))}
+          {rows.map((r,i)=>(
+            <div key={'r'+i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <span style={{ width:16, fontFamily:T.font.mono, fontSize:10, color:T.color.steel400, textAlign:'right' }}>{i+1}</span>
+              <input value={r} onChange={lbl('rows',i)} style={{ ...fld, width:60 }} />
+              {i<rows.length-1 && <>
+                <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>↕</span>
+                <input type="number" step="0.25" value={rowH[i]} onChange={bay('rowH',i)} style={{ ...fld, flex:1 }} title="Bay height to next row" />
+              </>}
+            </div>
+          ))}
+        </>)}
       </div>
 
       <div style={{ display:'flex', gap:8, padding:'12px 16px', borderTop:'1px solid '+T.color.line }}>
-        <Btn kind="ghost" size="sm" onClick={()=>onSave(null)}>Reset</Btn>
+        <Btn kind="ghost" size="sm" onClick={onReset}>Reset</Btn>
         <Btn kind="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-        <Btn kind="primary" size="sm" icon="check" style={{ marginLeft:'auto' }} onClick={()=>onSave(cfg)}>Save grid</Btn>
+        <Btn kind="primary" size="sm" icon="check" style={{ marginLeft:'auto' }} onClick={onSave}>Save grid</Btn>
       </div>
     </div>
   );
