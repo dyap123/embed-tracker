@@ -43,9 +43,10 @@
 </head>
 <body>
 <div id="root"></div>
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- perf: production React (was development build) + JSX is now precompiled to dist/ at build time,
+     so @babel/standalone (in-browser compiler, ~2.7MB) is no longer shipped. -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 <!-- Firebase backend (shared project · namespace embed-tracker) + Ironworker Run backend -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -72,16 +73,25 @@
 })();
 </script>
 <script src="assets/game-backend.js"></script>
-<script>
-  /* cache-busting loader — appends a per-load version so edited .jsx always reload */
-  (function(){
-    var v = Date.now();
-    var files = ['tokens','iconset','data','ui','exports','blueprint','SignIn','MapScreen',
-                 'MapDetail','Dashboard','Inventory','Game','GameDraw','Crew','Profile','App','iconset','main'];
-    files.forEach(function(f){
-      document.write('<script type="text/babel" src="app/'+f+'.jsx?v='+v+'"><\/script>');
-    });
-  })();
-</script>
+<!-- perf: precompiled modules (npm run build -> dist/*.js), loaded in dependency order.
+     No more per-load ?v=Date.now() cache-bust, so the browser caches these between visits.
+     Edit app/*.jsx then run `npm run build` before deploying. -->
+<script defer src="dist/tokens.js"></script>
+<script defer src="dist/iconset.js"></script>
+<script defer src="dist/data.js"></script>
+<script defer src="dist/ui.js"></script>
+<script defer src="dist/exports.js"></script>
+<script defer src="dist/blueprint.js"></script>
+<script defer src="dist/SignIn.js"></script>
+<script defer src="dist/MapScreen.js"></script>
+<script defer src="dist/MapDetail.js"></script>
+<script defer src="dist/Dashboard.js"></script>
+<script defer src="dist/Inventory.js"></script>
+<script defer src="dist/Game.js"></script>
+<script defer src="dist/GameDraw.js"></script>
+<script defer src="dist/Crew.js"></script>
+<script defer src="dist/Profile.js"></script>
+<script defer src="dist/App.js"></script>
+<script defer src="dist/main.js"></script>
 </body>
 </html>

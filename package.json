@@ -1,0 +1,12 @@
+{
+  "name": "embed-tracker",
+  "private": true,
+  "scripts": {
+    "build": "babel app --out-dir dist --extensions .jsx --out-file-extension .js --quiet"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.0",
+    "@babel/core": "^7.28.0",
+    "@babel/preset-react": "^7.27.1"
+  }
+}
