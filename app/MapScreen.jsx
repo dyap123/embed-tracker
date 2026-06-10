@@ -754,6 +754,7 @@ function poursItems(z){ const stored = Array.isArray(z.checklist)?z.checklist:[]
 function inspDueDate(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return ''; const dt=new Date(+m[1],+m[2]-1,+m[3]); dt.setDate(dt.getDate()-1);
   return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function inspDaysUntil(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return null; const d=new Date(+m[1],+m[2]-1,+m[3]); const n=new Date(); n.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.round((d-n)/86400000); }
+function fmtTimeEmbed(t){ const m=/^(\d{1,2}):(\d{2})$/.exec(t||''); if(!m) return ''; let h=+m[1]; const ap=h<12?'AM':'PM'; h=h%12||12; return h+':'+m[2]+' '+ap; }
 function inspDueInfo(z, doneN, total){
   const due = inspDueDate(z && z.date); if(!due) return null;
   const dleft = inspDaysUntil(due); const complete = total>0 && doneN===total;
@@ -808,7 +809,7 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
   const mix = z.mix || {};
   const placed = hasGeom(z);
   const dueInfo = inspDueInfo(z, doneN, items.length);
-  const title = `${pourTitle(z,n)}${z.date?' · '+shortDate(z.date):''}`;
+  const title = `${pourTitle(z,n)}${z.date?' · '+shortDate(z.date):''}${z.time?' · '+fmtTimeEmbed(z.time):''}`;
   const sub = [ z.nextPour ? 'NEXT' : null, status, (+z.cy ? (+z.cy + ' CY') : null), (placed ? null : 'NOT PLACED'), (z.cupPourId ? ('CUP ' + z.cupPourId) : null) ].filter(Boolean).join(' · ');
   function writeItems(next){ onUpdateZone(z.id, { checklist:next }); }
   function toggle(i){ const it=items[i]; writeItems(items.map((x,k)=> k===i ? (it.done?{...x,done:false,by:null,at:null}:{...x,done:true,by:user.name,at:today()}) : x)); }
@@ -840,16 +841,23 @@ function PourRow({ z, n, manager, user, today, onUpdateZone, onGoto }){
                 background:on?`rgba(${rgb},.18)`:'rgba(0,0,0,.25)', border:'1px solid '+(on?`rgba(${rgb},.6)`:T.color.line), color:on?`rgb(${rgb})`:T.color.steel400 }}>{s}</button>
             ); })}
           </div>
-          {/* pour date + CY — editable here or on the CUP dashboard */}
+          {/* pour date + start time + CY — editable here or on the CUP dashboard */}
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <div style={{ flex:1 }}>
               <DatePopover value={z.date||''} disabled={!manager} onChange={d=>onUpdateZone(z.id,{ date:d })} />
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 8px', height:34 }} title="Pour start time">
+              <Icon name="clock" size={13} style={{ color:'#FFB85C' }} />
+              {manager
+                ? <input type="time" defaultValue={z.time||''} onBlur={e=>{ if(e.target.value!==(z.time||'')) onUpdateZone(z.id,{ time:e.target.value }); }}
+                    style={{ background:'transparent', border:'none', outline:'none', color:'#FFB85C', fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, colorScheme:'dark', width:74 }} />
+                : <span style={{ color:'#FFB85C', fontFamily:T.font.mono, fontWeight:700, fontSize:12 }}>{z.time?fmtTimeEmbed(z.time):'—'}</span>}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 9px', height:34 }}>
               {manager
                 ? <input type="number" min="0" step="1" defaultValue={+z.cy||0} onFocus={e=>e.target.select()}
                     onBlur={e=>{ const v=+e.target.value||0; if(v!==(+z.cy||0)) onUpdateZone(z.id,{ cy:v }); }}
-                    style={{ background:'transparent', border:'none', outline:'none', color:'#34D399', fontFamily:T.font.mono, fontWeight:700, fontSize:14, width:54, textAlign:'right' }} />
+                    style={{ background:'transparent', border:'none', outline:'none', color:'#34D399', fontFamily:T.font.mono, fontWeight:700, fontSize:14, width:44, textAlign:'right' }} />
                 : <span style={{ color:'#34D399', fontFamily:T.font.mono, fontWeight:700, fontSize:14 }}>{+z.cy||0}</span>}
               <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>CY</span>
             </div>
