@@ -140,6 +140,11 @@ function MapScreen({
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const canvasRef = React.useRef(null); // pin layer (replaces ~340 DOM pin nodes)
+  const drawnView = React.useRef({
+    tx: 0,
+    ty: 0,
+    s: -1
+  }); // view at last full canvas repaint
   const [box, setBox] = React.useState({
     w: 1000,
     h: 700
@@ -488,7 +493,7 @@ function MapScreen({
         sx,
         sy
       } = pinScreen(e);
-      if (sx < -30 || sy < -30 || sx > W + 30 || sy > H + 30) continue; // cull offscreen
+      if (sx < -140 || sy < -140 || sx > W + 140 || sy > H + 140) continue; // cull offscreen (generous margin so a pan slides nearby pins in)
       const on = e.id === selId,
         picked = pickSet.has(e.id);
       if (on || picked) hi.push([e, sx, sy, on, picked]);else drawPin(ctx, e, sx, sy, false, false);
@@ -733,6 +738,13 @@ function MapScreen({
       }
       return;
     }
+    if (drag.current) {
+      drag.current = null;
+      setView(v => ({
+        ...v
+      }));
+      return;
+    } // pan ended → re-render so the canvas repaints fresh at the final position
     drag.current = null;
   }
   function onTouchMove(e) {
@@ -1196,7 +1208,22 @@ function MapScreen({
 
   // repaint the pin canvas after every commit (cheap: a few hundred simple arcs)
   React.useLayoutEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const dv = drawnView.current;
+    // during an active pan at the same zoom, slide the already-painted canvas via a cheap GPU
+    // transform so the pins stay pixel-locked to the blueprint (no per-frame repaint / swim)
+    if (drag.current && dv.s === view.s) {
+      cv.style.transform = `translate(${view.tx - dv.tx}px, ${view.ty - dv.ty}px)`;
+      return;
+    }
+    cv.style.transform = 'none';
     drawPins();
+    drawnView.current = {
+      tx: view.tx,
+      ty: view.ty,
+      s: view.s
+    };
   });
   return /*#__PURE__*/React.createElement("div", {
     ref: rootRef,
@@ -1413,32 +1440,38 @@ function MapScreen({
       strokeDasharray: z.done ? 'none' : `${swU * 3} ${swU * 3}`,
       style: {
         pointerEvents: manager && drawMode === 'off' ? 'auto' : 'none',
-        cursor: manager ? 'move' : 'default'
+        cursor: manager && reshape && on ? 'move' : 'pointer'
       },
       onPointerDown: manager ? e => {
-        e.stopPropagation();
+        if (e.button !== 0) return; // middle/right-click bubbles to the viewport → pan, not move
         const r = relXY(e);
         if (drawMode === 'off') {
           const hit = pinAt(r.x, r.y);
           if (hit) {
+            e.stopPropagation();
             pinPointerDown(e, hit);
             return;
           }
         } // a pin on top of the zone is clicked first
-        try {
-          vpRef.current.setPointerCapture(e.pointerId);
-        } catch (_) {}
+        e.stopPropagation();
+        if (z.id !== selZone) setReshape(false); // selecting a different zone starts in select (not move) mode
         setSelZone(z.id);
-        const f = toFrac(r.x, r.y);
-        sdrag.current = {
-          id: z.id,
-          base: {
-            ...z,
-            points: isPoly(z) ? z.points : undefined
-          },
-          fx: f.fx,
-          fy: f.fy
-        };
+        if (reshape && z.id === selZone) {
+          // only drag the whole zone while it's being reshaped
+          try {
+            vpRef.current.setPointerCapture(e.pointerId);
+          } catch (_) {}
+          const f = toFrac(r.x, r.y);
+          sdrag.current = {
+            id: z.id,
+            base: {
+              ...z,
+              points: isPoly(z) ? z.points : undefined
+            },
+            fx: f.fx,
+            fy: f.fy
+          };
+        }
       } : undefined,
       onDoubleClick: manager ? e => {
         e.stopPropagation();
