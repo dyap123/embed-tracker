@@ -139,6 +139,7 @@ function MapScreen({
 }) {
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
+  const canvasRef = React.useRef(null); // pin layer (replaces ~340 DOM pin nodes)
   const [box, setBox] = React.useState({
     w: 1000,
     h: 700
@@ -329,6 +330,171 @@ function MapScreen({
       fy: (py - view.ty) / view.s / plan.ph
     };
   }
+
+  // ---- canvas pin layer -------------------------------------------------
+  // ~340 pins used to be DOM nodes (one wrapper + dot + markers + label each);
+  // they're now painted on a single screen-space <canvas>, with pointer hit-testing
+  // for select/drag. Cuts the map's node count and makes pan/zoom re-paints cheap.
+  const HITR = 14; // pin tap radius in screen px
+  function pinScreen(e) {
+    const dp = dragPins && dragPins[e.id];
+    const nx = dp ? dp.nx : e.nx,
+      ny = dp ? dp.ny : e.ny;
+    return {
+      sx: view.tx + nx * plan.pw * view.s,
+      sy: view.ty + ny * plan.ph * view.s
+    };
+  }
+  function pinAt(x, y) {
+    // nearest visible pin within HITR, else null
+    let best = null,
+      bestD = HITR * HITR;
+    for (const e of visible) {
+      const {
+        sx,
+        sy
+      } = pinScreen(e);
+      const d = (sx - x) * (sx - x) + (sy - y) * (sy - y);
+      if (d <= bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+  // shared pin pointer-down: shift/⌘ toggles the group, plain grab starts a move/select drag.
+  // Called from the viewport handler and from the zone handler (so a pin on top of a zone wins).
+  function pinPointerDown(e, hit) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      setSelPins(p => p.includes(hit.id) ? p.filter(id => id !== hit.id) : [...p, hit.id]);
+      setSelId(null);
+      return;
+    }
+    const r = relXY(e);
+    const sf = toFrac(r.x, r.y);
+    const ids = pickSet.has(hit.id) && selPins.length > 0 ? selPins.slice() : [hit.id];
+    const base = {};
+    ids.forEach(id => {
+      const em = embeds.find(x2 => x2.id === id);
+      if (em) base[id] = {
+        nx: em.nx,
+        ny: em.ny
+      };
+    });
+    try {
+      vpRef.current.setPointerCapture(e.pointerId);
+    } catch (_) {}
+    pdrag.current = {
+      ids,
+      base,
+      sf,
+      hitId: hit.id,
+      moved: false,
+      last: null
+    };
+  }
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function drawPin(ctx, e, x, y, on, picked) {
+    const st = pinState(e);
+    const col = e.hasStub && st !== 'installed' ? '#FF9650' : STATE[st].color;
+    const r = on ? 8 : 6;
+    ctx.beginPath();
+    ctx.arc(x, y, r + (picked ? 3 : on ? 3 : 1.5), 0, 6.2832); // glow / selection ring
+    ctx.fillStyle = picked ? '#ffffff' : col + '55';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 6.2832);
+    ctx.fillStyle = col;
+    ctx.fill(); // dot
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = on ? '#ffffff' : 'rgba(8,11,16,.85)';
+    ctx.stroke();
+    const mo = r + 1.5;
+    if (e.hasKnife) {
+      ctx.save();
+      ctx.translate(x - mo, y - mo);
+      ctx.rotate(0.7853982);
+      ctx.fillStyle = T.color.blue; // knife plate ◆ top-left
+      ctx.fillRect(-3, -3, 6, 6);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#0C111A';
+      ctx.strokeRect(-3, -3, 6, 6);
+      ctx.restore();
+    }
+    if (e.hasStub) {
+      ctx.fillStyle = '#FF9650';
+      ctx.fillRect(x - mo - 3, y + mo - 3, 6, 6);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#0C111A';
+      ctx.strokeRect(x - mo - 3, y + mo - 3, 6, 6);
+    } // stub ■ bottom-left
+    if (e.rfi) {
+      const rc = e.rfi.status === 'Open' ? T.color.red : e.rfi.status === 'Answered' ? T.color.yellow : T.color.steel300; // RFI ● top-right
+      ctx.beginPath();
+      ctx.arc(x + mo, y - mo, 3.5, 0, 6.2832);
+      ctx.fillStyle = rc;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#0C111A';
+      ctx.stroke();
+    }
+    if (labelsOn || on) {
+      const txt = String((labelsOn ? e.mark : e.grid) || '');
+      if (txt) {
+        ctx.font = "500 9.5px 'JetBrains Mono', ui-monospace, monospace";
+        const tw = ctx.measureText(txt).width,
+          pad = 4,
+          h = 13,
+          ly = y + r + 3.5;
+        ctx.fillStyle = 'rgba(8,11,16,.78)';
+        roundRectPath(ctx, x - tw / 2 - pad, ly, tw + pad * 2, h, 3);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(150,170,205,.2)';
+        ctx.stroke();
+        ctx.fillStyle = '#dfe7f2';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(txt, x, ly + h / 2 + 0.5);
+      }
+    }
+  }
+  function drawPins() {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = box.w,
+      H = box.h,
+      bw = Math.round(W * dpr),
+      bh = Math.round(H * dpr);
+    if (cv.width !== bw || cv.height !== bh) {
+      cv.width = bw;
+      cv.height = bh;
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const hi = []; // draw selected/picked last so they sit on top
+    for (const e of visible) {
+      const {
+        sx,
+        sy
+      } = pinScreen(e);
+      if (sx < -30 || sy < -30 || sx > W + 30 || sy > H + 30) continue; // cull offscreen
+      const on = e.id === selId,
+        picked = pickSet.has(e.id);
+      if (on || picked) hi.push([e, sx, sy, on, picked]);else drawPin(ctx, e, sx, sy, false, false);
+    }
+    for (const a of hi) drawPin(ctx, a[0], a[1], a[2], a[3], a[4]);
+  }
   function onPointerDown(e) {
     if (e.button === 1) {
       e.preventDefault();
@@ -392,6 +558,12 @@ function MapScreen({
     // drawMode 'off': empty-area drag = marquee select (Select tool) or pan (Pan tool); pins drag themselves
     setSelZone(null);
     setReshape(false);
+    // canvas pins: hit-test the click — a hit pin selects/drags (mirrors the old per-pin handler)
+    const hit = pinAt(x, y);
+    if (hit) {
+      pinPointerDown(e, hit);
+      return;
+    }
     if (tool === 'pan') {
       touched.current = true;
       drag.current = {
@@ -1021,6 +1193,11 @@ function MapScreen({
   const swU = 2.2 * uPerPx,
     handleU = 7 * uPerPx;
   const cursor = drawMode !== 'off' ? 'crosshair' : tool === 'pan' ? drag.current ? 'grabbing' : 'grab' : 'crosshair';
+
+  // repaint the pin canvas after every commit (cheap: a few hundred simple arcs)
+  React.useLayoutEffect(() => {
+    drawPins();
+  });
   return /*#__PURE__*/React.createElement("div", {
     ref: rootRef,
     style: {
@@ -1240,11 +1417,18 @@ function MapScreen({
       },
       onPointerDown: manager ? e => {
         e.stopPropagation();
+        const r = relXY(e);
+        if (drawMode === 'off') {
+          const hit = pinAt(r.x, r.y);
+          if (hit) {
+            pinPointerDown(e, hit);
+            return;
+          }
+        } // a pin on top of the zone is clicked first
         try {
           vpRef.current.setPointerCapture(e.pointerId);
         } catch (_) {}
         setSelZone(z.id);
-        const r = relXY(e);
         const f = toFrac(r.x, r.y);
         sdrag.current = {
           id: z.id,
@@ -1434,125 +1618,6 @@ function MapScreen({
         whiteSpace: 'nowrap'
       }
     }, lbl));
-  }), visible.map(e => {
-    const st = pinState(e);
-    const col = e.hasStub && st !== 'installed' ? '#FF9650' : STATE[st].color;
-    const on = e.id === selId;
-    const picked = pickSet.has(e.id);
-    const dp = dragPins && dragPins[e.id];
-    const moving = !!dp;
-    const px = moving ? dp.nx : e.nx,
-      py = moving ? dp.ny : e.ny;
-    const draggable = drawMode === 'off'; // click a pin → drag to move; click without moving → select
-    return /*#__PURE__*/React.createElement("div", {
-      key: e.id,
-      "data-pin": true,
-      onPointerDown: draggable ? ev => {
-        if (ev.button !== 0) return;
-        ev.stopPropagation();
-        if (ev.metaKey || ev.ctrlKey || ev.shiftKey) {
-          setSelPins(p => p.includes(e.id) ? p.filter(x => x !== e.id) : [...p, e.id]);
-          setSelId(null);
-          return;
-        } // shift/⌘-click builds a group
-        try {
-          vpRef.current.setPointerCapture(ev.pointerId);
-        } catch (_) {}
-        const r = relXY(ev);
-        const sf = toFrac(r.x, r.y);
-        const ids = pickSet.has(e.id) && selPins.length > 0 ? selPins.slice() : [e.id]; // drag the whole selection if grabbed pin is in it
-        const base = {};
-        ids.forEach(id => {
-          const em = embeds.find(x => x.id === id);
-          if (em) base[id] = {
-            nx: em.nx,
-            ny: em.ny
-          };
-        });
-        pdrag.current = {
-          ids,
-          base,
-          sf,
-          hitId: e.id,
-          moved: false,
-          last: null
-        };
-      } : undefined,
-      style: {
-        position: 'absolute',
-        left: px * 100 + '%',
-        top: py * 100 + '%',
-        width: 0,
-        height: 0,
-        zIndex: on || picked || moving ? 5 : 1,
-        cursor: draggable ? moving ? 'grabbing' : 'grab' : 'pointer'
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        transform: 'translate(-50%,-50%)',
-        transformOrigin: 'center',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 2,
-        cursor: 'pointer'
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: 'relative',
-        width: on ? 16 : 12,
-        height: on ? 16 : 12,
-        borderRadius: '50%',
-        background: col,
-        border: '2px solid ' + (on ? '#fff' : 'rgba(8,11,16,.85)'),
-        boxShadow: picked ? `0 0 0 3px #fff, 0 1px 4px rgba(0,0,0,.6)` : `0 0 0 ${on ? 3 : 1.5}px ${col}55, 0 1px 4px rgba(0,0,0,.6)`,
-        animation: st === 'installed' && on ? 'pinPulse 1.6s 2' : 'none'
-      }
-    }, e.hasKnife && /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: 'absolute',
-        top: -5,
-        left: -5,
-        width: 7,
-        height: 7,
-        background: T.color.blue,
-        border: '1.5px solid #0C111A',
-        transform: 'rotate(45deg)'
-      }
-    }), e.hasStub && /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: 'absolute',
-        bottom: -5,
-        left: -5,
-        width: 7,
-        height: 7,
-        background: '#FF9650',
-        border: '1.5px solid #0C111A'
-      }
-    }), e.rfi && /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: 'absolute',
-        top: -5,
-        right: -5,
-        width: 7,
-        height: 7,
-        borderRadius: '50%',
-        background: e.rfi.status === 'Open' ? T.color.red : e.rfi.status === 'Answered' ? T.color.yellow : T.color.steel300,
-        border: '1.5px solid #0C111A'
-      }
-    })), (labelsOn || on) && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: T.font.mono,
-        fontSize: 9.5,
-        fontWeight: 500,
-        color: '#dfe7f2',
-        background: 'rgba(8,11,16,.78)',
-        padding: '1px 4px',
-        borderRadius: 3,
-        whiteSpace: 'nowrap',
-        border: '1px solid rgba(150,170,205,.2)'
-      }
-    }, labelsOn ? e.mark : e.grid)));
   }), drawMode === 'pin' && ghost && /*#__PURE__*/React.createElement("div", {
     style: {
       position: 'absolute',
@@ -1614,7 +1679,17 @@ function MapScreen({
       borderRadius: 3,
       whiteSpace: 'nowrap'
     }
-  }, place.mark || 'NEW')))), /*#__PURE__*/React.createElement(GridRuler, {
+  }, place.mark || 'NEW')))), /*#__PURE__*/React.createElement("canvas", {
+    ref: canvasRef,
+    style: {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      zIndex: 2
+    }
+  }), /*#__PURE__*/React.createElement(GridRuler, {
     view: view,
     plan: plan,
     box: box
