@@ -173,6 +173,12 @@ function MapScreen({
     'WCG Pours': true
   }); // per-layer markup show/hide
   const [showBackfill, setShowBackfill] = React.useState(true); // show/hide slurry-backfill pours within the WCG layer
+  const [expandedPours, setExpandedPours] = React.useState(() => new Set()); // pour ids whose full name/info is shown (tap the # badge)
+  const togglePourLabel = id => setExpandedPours(s => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
   const [showPours, setShowPours] = React.useState(false); // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off'); // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({
@@ -1576,7 +1582,14 @@ function MapScreen({
     const gc = z.done ? '47,214,166' : z.nextPour ? '82,230,224' : z.color || '126,120,240';
     const isPour = zoneLayer(z) === 'WCG Pours';
     if (isPour) {
-      // prominent numbered badge at the zone centre — easy to tell which pour is which
+      // compact numbered badge at the zone centre; tap it to expand the full name/info
+      const expanded = expandedPours.has(z.id);
+      const numBadge = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          opacity: .6
+        }
+      }, "#"), pourNo[z.id] || '?');
       return /*#__PURE__*/React.createElement("div", {
         key: 'lb' + z.id,
         style: {
@@ -1588,39 +1601,42 @@ function MapScreen({
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 2
+          gap: 2,
+          zIndex: expanded ? 7 : 1
         }
       }, /*#__PURE__*/React.createElement("span", {
+        "data-ui": true,
+        onClick: e => {
+          e.stopPropagation();
+          togglePourLabel(z.id);
+        },
+        title: expanded ? 'Tap to collapse' : z.name || 'Pour ' + (pourNo[z.id] || ''),
         style: {
           display: 'inline-flex',
           alignItems: 'baseline',
           gap: 1,
-          maxWidth: 160,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          background: 'rgba(10,14,20,.72)',
+          pointerEvents: 'auto',
+          cursor: 'pointer',
+          maxWidth: expanded ? 220 : 'none',
+          whiteSpace: expanded ? 'normal' : 'nowrap',
+          textAlign: 'center',
+          background: 'rgba(10,14,20,.82)',
           color: `rgb(${gc})`,
           fontFamily: T.font.display,
           fontWeight: 700,
           fontSize: 14,
-          lineHeight: 1,
+          lineHeight: 1.15,
           padding: '3px 9px',
           borderRadius: T.radius.md,
           border: `1px solid rgba(${gc},.5)`
         }
-      }, z.name ? z.name : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-        style: {
-          fontSize: 10,
-          opacity: .6
-        }
-      }, "#"), pourNo[z.id] || '?'), z.done ? /*#__PURE__*/React.createElement("span", {
+      }, expanded ? z.name || numBadge : numBadge, z.done ? /*#__PURE__*/React.createElement("span", {
         style: {
           fontSize: 11,
           marginLeft: 3,
           color: '#47D6A6'
         }
-      }, "\u2713") : null), (z.nextPour || z.date) && /*#__PURE__*/React.createElement("span", {
+      }, "\u2713") : null), expanded && (z.nextPour || z.date) && /*#__PURE__*/React.createElement("span", {
         style: {
           fontFamily: T.font.mono,
           fontSize: 9,

@@ -61,6 +61,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [showLegend, setShowLegend] = React.useState(true);
   const [layerVis, setLayerVis] = React.useState({ PWJV:true, 'WCG Pours':true });   // per-layer markup show/hide
   const [showBackfill, setShowBackfill] = React.useState(true);   // show/hide slurry-backfill pours within the WCG layer
+  const [expandedPours, setExpandedPours] = React.useState(()=>new Set());   // pour ids whose full name/info is shown (tap the # badge)
+  const togglePourLabel = (id)=> setExpandedPours(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   const [showPours, setShowPours] = React.useState(false);   // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, stubColumn:false, sequence:'1', phase:'1', area:'A', mark:'' });
@@ -483,16 +485,21 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
             const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
             const isPour=zoneLayer(z)==='WCG Pours';
             if (isPour){
-              // prominent numbered badge at the zone centre — easy to tell which pour is which
+              // compact numbered badge at the zone centre; tap it to expand the full name/info
+              const expanded = expandedPours.has(z.id);
+              const numBadge = <span><span style={{ fontSize:10, opacity:.6 }}>#</span>{pourNo[z.id]||'?'}</span>;
               return (
                 <div key={'lb'+z.id} style={{ position:'absolute', left:(bb.x+bb.w/2)*100+'%', top:(bb.y+bb.h/2)*100+'%',
-                  transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                  <span style={{ display:'inline-flex', alignItems:'baseline', gap:1, maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', background:'rgba(10,14,20,.72)', color:`rgb(${gc})`,
-                    fontFamily:T.font.display, fontWeight:700, fontSize:14, lineHeight:1, padding:'3px 9px', borderRadius:T.radius.md,
+                  transform:'translate(-50%,-50%)', pointerEvents:'none', display:'flex', flexDirection:'column', alignItems:'center', gap:2, zIndex:expanded?7:1 }}>
+                  <span data-ui onClick={(e)=>{ e.stopPropagation(); togglePourLabel(z.id); }}
+                    title={expanded?'Tap to collapse':(z.name||'Pour '+(pourNo[z.id]||''))}
+                    style={{ display:'inline-flex', alignItems:'baseline', gap:1, pointerEvents:'auto', cursor:'pointer',
+                    maxWidth: expanded?220:'none', whiteSpace: expanded?'normal':'nowrap', textAlign:'center', background:'rgba(10,14,20,.82)', color:`rgb(${gc})`,
+                    fontFamily:T.font.display, fontWeight:700, fontSize:14, lineHeight:1.15, padding:'3px 9px', borderRadius:T.radius.md,
                     border:`1px solid rgba(${gc},.5)` }}>
-                    {z.name ? z.name : <span><span style={{ fontSize:10, opacity:.6 }}>#</span>{pourNo[z.id]||'?'}</span>}{z.done?<span style={{ fontSize:11, marginLeft:3, color:'#47D6A6' }}>✓</span>:null}
+                    {expanded ? (z.name || numBadge) : numBadge}{z.done?<span style={{ fontSize:11, marginLeft:3, color:'#47D6A6' }}>✓</span>:null}
                   </span>
-                  {(z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:9, fontWeight:600, color:T.color.steel300,
+                  {expanded && (z.nextPour || z.date) && <span style={{ fontFamily:T.font.mono, fontSize:9, fontWeight:600, color:T.color.steel300,
                     background:'rgba(10,14,20,.62)', padding:'1px 6px', borderRadius:5, whiteSpace:'nowrap' }}>
                     {z.nextPour?'NEXT':''}{z.nextPour&&z.date?' · ':''}{z.date?shortDate(z.date):''}</span>}
                 </div>
