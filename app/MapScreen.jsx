@@ -7,6 +7,8 @@ const STATE_ORDER = ['installed','next','todo'];   // knife plate is an attribut
 // markup layers: PWJV (plain) + WCG Pours (the pour layer). Legacy 'WCG'/'Pours' fold in.
 function zoneLayer(z){ const l=z&&z.layer; return (l==='WCG'||l==='Pours'||l==='WCG Pours') ? 'WCG Pours' : (l||'PWJV'); }
 const LAYERS = [['PWJV','126,120,240'],['WCG Pours','82,230,224']];
+// a pour assigned slurry IS a backfill pour — name carries it (e.g. "… Slurry", "… Backfill"). Used by the Backfill show/hide.
+function isBackfillPour(z){ return /slurry|backfill/i.test((z&&z.name)||''); }
 // a pour created in the CUP dashboard has no box yet — it's placed by drawing one here
 function hasGeom(z){ return (Array.isArray(z&&z.points) && z.points.length>=3) || (typeof (z&&z.w)==='number' && z.w>0 && typeof z.h==='number' && z.h>0); }
 function pourTitle(z, n){ return (z&&z.name) ? z.name : ('#'+(n||'?')); }
@@ -58,6 +60,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
   const [showLegend, setShowLegend] = React.useState(true);
   const [layerVis, setLayerVis] = React.useState({ PWJV:true, 'WCG Pours':true });   // per-layer markup show/hide
+  const [showBackfill, setShowBackfill] = React.useState(true);   // show/hide slurry-backfill pours within the WCG layer
   const [showPours, setShowPours] = React.useState(false);   // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off');  // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({ knifePlate:false, stubColumn:false, sequence:'1', phase:'1', area:'A', mark:'' });
@@ -403,7 +406,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -435,7 +438,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
           {/* markup + marquee overlay */}
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible', pointerEvents:'none' }}>
-            {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z)).map(z=>{
+            {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z))).map(z=>{
               const pts=zonePts(z); const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240'); const on=z.id===selZone; const dpts=pts.map(p=>p.join(',')).join(' ');
               return (
                 <g key={z.id}>
@@ -476,7 +479,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </svg>
 
           {/* zone labels */}
-          {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z)).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
+          {renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z))).map(z=>{ const bb=isPoly(z)?bboxOf(z.points):z;
             const gc=z.done?'47,214,166':z.nextPour?'82,230,224':(z.color||'126,120,240');
             const isPour=zoneLayer(z)==='WCG Pours';
             if (isPour){
@@ -596,7 +599,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           onClose={()=>{ setGridMode(false); onGridDraft(null); }}
           onSave={()=>{ onSaveGrid(gridDraft); setGridMode(false); }}
           onReset={()=>{ onSaveGrid(null); setGridMode(false); }} />}
-        {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone}
+        {showPours && <PoursDrawer zones={zones} embeds={embeds} manager={manager} user={user} isPhone={isPhone} showBackfill={showBackfill}
           onUpdateZone={onUpdateZone} onClose={()=>setShowPours(false)} onClearNextPour={clearNextPour} onGoto={(z)=>{ focusZone(z); if(isPhone) setShowPours(false); }} />}
         {confirm && <ConfirmDialog message={confirm.message} onYes={confirm.onYes} onNo={()=>setConfirm(null)} />}
       </div>
@@ -624,7 +627,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   const [fOpen,setFOpen] = React.useState(false);
   const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
@@ -684,6 +687,13 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,draw
               <Icon name={on?'eye':'eyeOff'} size={14}/>{L}
             </button>
           ); })}
+          {/* show/hide slurry-backfill pours (a pour assigned slurry = backfill) */}
+          <button onClick={()=>setShowBackfill(v=>!v)} title={(showBackfill?'Hide':'Show')+' slurry / backfill pours'}
+            style={{ display:'flex', alignItems:'center', gap:5, height:30, padding:'0 9px', borderRadius:T.radius.md,
+              background:showBackfill?'rgba(255,150,80,.18)':'rgba(0,0,0,.3)', border:'1px solid '+(showBackfill?'rgba(255,150,80,.6)':T.color.line),
+              color:showBackfill?'#FF9650':T.color.steel400, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.04em' }}>
+            <Icon name={showBackfill?'eye':'eyeOff'} size={14}/>Backfill
+          </button>
         </div>
         <Btn size="sm" kind={pours?'primary':'ghost'} icon="clipboard" onClick={()=>setPours(p=>!p)}>Pours</Btn>
         <button onClick={toggleFull} title={full?'Exit full screen':'Full screen'} style={{ ...zbtn, width:32, height:30, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line }}><Icon name={full?'minimize':'maximize'} size={16}/></button>
@@ -885,9 +895,9 @@ function inspDueInfo(z, doneN, total){
   return { col, lbl };
 }
 
-function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, onUpdateZone, onClose, onGoto, onClearNextPour }){
+function PoursDrawer({ zones=[], embeds=[], manager, user, isPhone, showBackfill=true, onUpdateZone, onClose, onGoto, onClearNextPour }){
   const today = ()=> new Date().toISOString().slice(0,10);
-  const pours = zones.filter(z=>zoneLayer(z)==='WCG Pours')
+  const pours = zones.filter(z=>zoneLayer(z)==='WCG Pours' && (showBackfill || !isBackfillPour(z)))
     .sort((a,b)=> (a.date||'9999').localeCompare(b.date||'9999') || (a.createdAt||0)-(b.createdAt||0));
   const anyNext = zones.some(z=>z.nextPour) || embeds.some(e=>e.nextPour);
   return (

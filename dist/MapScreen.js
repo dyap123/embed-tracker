@@ -10,6 +10,10 @@ function zoneLayer(z) {
   return l === 'WCG' || l === 'Pours' || l === 'WCG Pours' ? 'WCG Pours' : l || 'PWJV';
 }
 const LAYERS = [['PWJV', '126,120,240'], ['WCG Pours', '82,230,224']];
+// a pour assigned slurry IS a backfill pour — name carries it (e.g. "… Slurry", "… Backfill"). Used by the Backfill show/hide.
+function isBackfillPour(z) {
+  return /slurry|backfill/i.test(z && z.name || '');
+}
 // a pour created in the CUP dashboard has no box yet — it's placed by drawing one here
 function hasGeom(z) {
   return Array.isArray(z && z.points) && z.points.length >= 3 || typeof (z && z.w) === 'number' && z.w > 0 && typeof z.h === 'number' && z.h > 0;
@@ -168,6 +172,7 @@ function MapScreen({
     PWJV: true,
     'WCG Pours': true
   }); // per-layer markup show/hide
+  const [showBackfill, setShowBackfill] = React.useState(true); // show/hide slurry-backfill pours within the WCG layer
   const [showPours, setShowPours] = React.useState(false); // pours / pre-pour checklist drawer
   const [drawMode, setDrawMode] = React.useState('off'); // 'off' | 'rect' | 'poly' | 'pin'
   const [place, setPlace] = React.useState({
@@ -1259,6 +1264,8 @@ function MapScreen({
     pourMode,
     layerVis,
     setLayerVis,
+    showBackfill,
+    setShowBackfill,
     pours: showPours,
     setPours: setShowPours,
     q,
@@ -1424,7 +1431,7 @@ function MapScreen({
       overflow: 'visible',
       pointerEvents: 'none'
     }
-  }, renderZones.filter(z => layerVis[zoneLayer(z)] && hasGeom(z)).map(z => {
+  }, renderZones.filter(z => layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z))).map(z => {
     const pts = zonePts(z);
     const gc = z.done ? '47,214,166' : z.nextPour ? '82,230,224' : z.color || '126,120,240';
     const on = z.id === selZone;
@@ -1564,7 +1571,7 @@ function MapScreen({
     stroke: T.color.amberHot,
     strokeWidth: swU,
     strokeDasharray: `${swU * 2} ${swU * 2}`
-  })), renderZones.filter(z => layerVis[zoneLayer(z)] && hasGeom(z)).map(z => {
+  })), renderZones.filter(z => layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z))).map(z => {
     const bb = isPoly(z) ? bboxOf(z.points) : z;
     const gc = z.done ? '47,214,166' : z.nextPour ? '82,230,224' : z.color || '126,120,240';
     const isPour = zoneLayer(z) === 'WCG Pours';
@@ -2041,6 +2048,7 @@ function MapScreen({
     manager: manager,
     user: user,
     isPhone: isPhone,
+    showBackfill: showBackfill,
     onUpdateZone: onUpdateZone,
     onClose: () => setShowPours(false),
     onClearNextPour: clearNextPour,
@@ -2149,6 +2157,8 @@ function MapToolbar({
   pourMode,
   layerVis,
   setLayerVis,
+  showBackfill,
+  setShowBackfill,
   pours,
   setPours,
   q,
@@ -2447,7 +2457,28 @@ function MapToolbar({
       name: on ? 'eye' : 'eyeOff',
       size: 14
     }), L);
-  })), /*#__PURE__*/React.createElement(Btn, {
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowBackfill(v => !v),
+    title: (showBackfill ? 'Hide' : 'Show') + ' slurry / backfill pours',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5,
+      height: 30,
+      padding: '0 9px',
+      borderRadius: T.radius.md,
+      background: showBackfill ? 'rgba(255,150,80,.18)' : 'rgba(0,0,0,.3)',
+      border: '1px solid ' + (showBackfill ? 'rgba(255,150,80,.6)' : T.color.line),
+      color: showBackfill ? '#FF9650' : T.color.steel400,
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 11,
+      letterSpacing: '.04em'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: showBackfill ? 'eye' : 'eyeOff',
+    size: 14
+  }), "Backfill")), /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
     kind: pours ? 'primary' : 'ghost',
     icon: "clipboard",
@@ -3193,13 +3224,14 @@ function PoursDrawer({
   manager,
   user,
   isPhone,
+  showBackfill = true,
   onUpdateZone,
   onClose,
   onGoto,
   onClearNextPour
 }) {
   const today = () => new Date().toISOString().slice(0, 10);
-  const pours = zones.filter(z => zoneLayer(z) === 'WCG Pours').sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
+  const pours = zones.filter(z => zoneLayer(z) === 'WCG Pours' && (showBackfill || !isBackfillPour(z))).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
   const anyNext = zones.some(z => z.nextPour) || embeds.some(e => e.nextPour);
   return /*#__PURE__*/React.createElement("div", {
     "data-ui": true,
