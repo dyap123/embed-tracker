@@ -207,22 +207,14 @@ const ZONE_COLORS = [
   ['196,92,203','Magenta'],['240,85,107','Coral'],['151,166,200','Steel'],
 ];
 function ZoneEditor({ zone, embeds=[], onApply, onCancel, onDelete, unplaced=[] }){
-  // how many embeds / distinct types fall inside the drawn region (best-effort; needs geometry)
-  const region = React.useMemo(()=>{
-    try{ const pts = zonePts(zone); if(!pts || pts.length<3) return null;
-      const inside = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts));
-      const ds = window.deliveryState || (e=>e.installed?'delivered':(e.delivery||'none'));
-      return { count:inside.length, types:new Set(inside.map(e=>e.mark).filter(Boolean)).size,
-        installed:inside.filter(e=>e.installed).length,
-        delivered:inside.filter(e=>ds(e)==='delivered').length }; }
-    catch(_){ return null; }
-  }, [zone, embeds]);
   const [area, setArea] = React.useState(zone.area || 'A');
   const [pour, setPour] = React.useState(zone.pour || '1');
   const [phase, setPhase] = React.useState(zone.phase || '1');
   const [done, setDone] = React.useState(!!zone.done);
   const [nextPour, setNextPour] = React.useState(!!zone.nextPour);
   const [assign, setAssign] = React.useState(!!zone.assign);
+  const [markDeliv, setMarkDeliv] = React.useState(false);          // mark a delivery status for everything inside
+  const [delivVal, setDelivVal] = React.useState('transit');        // which status to apply on Apply
   const [color, setColor] = React.useState(zone.color || '126,120,240');
   const [layer, setLayer] = React.useState(zoneLayer(zone));
   const [date, setDate] = React.useState(zone.date || '');
@@ -251,18 +243,6 @@ function ZoneEditor({ zone, embeds=[], onApply, onCancel, onDelete, unplaced=[] 
           <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, textTransform:'uppercase', letterSpacing:'.03em' }}>{zone._new?'Tag zone':'Edit zone'}</span>
         </div>
         <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 14px' }}>{target?'Drop this box onto an existing pour to give it a location.':'Tag every embed inside this zone. Area & sequence stay as-is unless you choose to reassign them.'}</p>
-        {region && (
-          <div style={{ display:'flex', alignItems:'center', gap:16, margin:'0 0 16px', padding:'11px 14px', borderRadius:T.radius.lg,
-            background:'rgba(126,120,240,.08)', border:'1px solid rgba(126,120,240,.3)' }}>
-            <Icon name="target" size={16} style={{ color:T.color.amberHot, flex:'0 0 auto' }} />
-            {[['Embeds',region.count,'#fff'],['Types',region.types,T.color.amberHot],['Delivered',region.delivered,T.color.green],['Installed',region.installed,T.color.green]].map(([l,v,c])=>(
-              <div key={l}>
-                <div style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>{l}</div>
-                <div style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:17, color:c, marginTop:1 }}>{v}</div>
-              </div>
-            ))}
-          </div>
-        )}
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           {canAttach && (
             <Field label="Pour">
@@ -287,6 +267,22 @@ function ZoneEditor({ zone, embeds=[], onApply, onCancel, onDelete, unplaced=[] 
             style={{ ...inputStyle, padding:'9px 11px', fontSize:13.5 }} /></Field>}
           <Tag on={nextPour} set={setNextPour} c="82,230,224" title="Next pour" sub="Cyan layer · flags everything inside as the next pour" />
           <Tag on={done} set={setDone} c="47,214,166" title="Pour complete" sub="Green layer · marks every embed inside installed" />
+
+          {/* mark a delivery-to-site status for every embed inside the zone */}
+          <div style={{ background:markDeliv?`linear-gradient(180deg,rgba(245,194,75,.16),rgba(245,194,75,.04))`:'rgba(0,0,0,.22)',
+            border:'1px solid '+(markDeliv?'rgba(245,194,75,.5)':T.color.line), borderRadius:T.radius.lg, padding:'12px 14px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+              <div onClick={()=>setMarkDeliv(v=>!v)} style={{ cursor:'pointer', flex:1 }}>
+                <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15, textTransform:'uppercase', letterSpacing:'.03em', color:markDeliv?'#F5C24B':'#fff' }}>Set delivery status</div>
+                <div style={{ fontSize:12, color:T.color.steel300, marginTop:2 }}>Mark every embed inside delivered / on the way / not delivered</div>
+              </div>
+              <Toggle on={markDeliv} onChange={()=>setMarkDeliv(v=>!v)} />
+            </div>
+            {markDeliv && <div style={{ marginTop:12 }}>
+              <Segmented value={delivVal} onChange={setDelivVal}
+                options={[{value:'delivered',label:'Delivered'},{value:'transit',label:'On the way'},{value:'none',label:'Not delivered'}]} style={{ display:'flex', flexWrap:'wrap' }} />
+            </div>}
+          </div>
 
           {/* layer + pour date */}
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
@@ -321,7 +317,7 @@ function ZoneEditor({ zone, embeds=[], onApply, onCancel, onDelete, unplaced=[] 
           <Btn kind="ghost" onClick={onCancel} style={{ marginLeft:onDelete?0:'auto' }}>Cancel</Btn>
           <Btn kind="primary" icon="check" onClick={()=>onApply(target
             ? { ...zone, attachTo }
-            : { ...zone, name, area, pour, phase, done, nextPour, assign, color, layer, date })} style={{ marginLeft:onDelete?'auto':0 }}>{target?'Place pour':'Apply'}</Btn>
+            : { ...zone, name, area, pour, phase, done, nextPour, assign, color, layer, date, setDelivery: markDeliv?delivVal:null })} style={{ marginLeft:onDelete?'auto':0 }}>{target?'Place pour':'Apply'}</Btn>
         </div>
       </Card>
     </div>
@@ -416,4 +412,77 @@ function DatePopover({ value, onChange, disabled }){
   );
 }
 
-Object.assign(window, { PinDetail, ZoneEditor, Celebrate, NewPinEditor, DatePopover });
+/* detailed region info — every embed type inside a zone with delivery + install status, plus region-wide bulk actions */
+function RegionInfo({ zone, embeds=[], isPhone, pourNo, onClose, onBulkDelivery, onBulkInstall }){
+  const dS = window.deliveryState || (e=>e.installed?'delivered':(e.delivery||'none'));
+  const inside = React.useMemo(()=>{ try{ const pts=zonePts(zone); if(!pts||pts.length<3) return []; return embeds.filter(e=>pointInPoly(e.nx,e.ny,pts)); }catch(_){ return []; } }, [zone, embeds]);
+  const ids = inside.map(e=>e.id);
+  const delivered = inside.filter(e=>dS(e)==='delivered').length;
+  const transit = inside.filter(e=>dS(e)==='transit').length;
+  const installed = inside.filter(e=>e.installed).length;
+  const byMark = {};
+  inside.forEach(e=>{ const mk=e.mark||'—'; const m=byMark[mk]||(byMark[mk]={ mark:mk, embeds:0, delivered:0, transit:0, installed:0, knife:false, stub:false });
+    m.embeds++; const dl=dS(e); if(dl==='delivered') m.delivered++; else if(dl==='transit') m.transit++; if(e.installed) m.installed++; if(e.hasKnife) m.knife=true; if(e.hasStub) m.stub=true; });
+  const marks = Object.values(byMark).sort((a,b)=>String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true}));
+  const title = zone.name || (zoneLayer(zone)==='WCG Pours' ? ('Pour #'+(pourNo||'?')) : `${seqLabel(zone.pour||'')}${zone.area?' · '+zone.area:''}`) || 'Region';
+  const COLS = 'minmax(0,1fr) 38px 62px 42px';
+  const wrap = isPhone
+    ? { position:'absolute', left:0, right:0, bottom:0, maxHeight:'82%', borderRadius:'18px 18px 0 0', animation:'panelInUp .3s cubic-bezier(.2,.8,.2,1) both' }
+    : { position:'absolute', top:14, right:14, bottom:14, width:400, borderRadius:T.radius.xl, animation:'panelIn .3s cubic-bezier(.2,.8,.2,1) both' };
+  const DAct = (status, label, rgb) => (
+    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status)} disabled={!ids.length}
+      style={{ flex:1, padding:'8px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.02em', whiteSpace:'nowrap',
+        background:`rgba(${rgb},.16)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
+  );
+  return (
+    <div data-ui style={{ ...wrap, background:steelPlate('#171F2C','#0E141D'), border:'1px solid '+T.color.line, boxShadow:T.shadow.panel, display:'flex', flexDirection:'column', overflow:'hidden', zIndex:22 }}>
+      <div style={{ padding:'16px 18px', borderBottom:'1px solid '+T.color.line, background:'linear-gradient(180deg, rgba(30,58,107,.25), transparent)' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:T.font.mono, fontSize:11, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Region info</div>
+            <h3 style={{ fontFamily:T.font.display, fontWeight:700, fontSize:22, margin:'3px 0 0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{title}</h3>
+          </div>
+          <button onClick={onClose} style={{ color:T.color.steel300, padding:6, background:'rgba(0,0,0,.25)', borderRadius:8 }}><Icon name="close" size={16}/></button>
+        </div>
+        <div style={{ display:'flex', gap:15, marginTop:12, flexWrap:'wrap' }}>
+          {[['Embeds',inside.length,'#fff'],['Types',marks.length,T.color.amberHot],['Delivered',delivered,T.color.green],['On the way',transit,T.color.yellow],['Installed',installed,T.color.green]].map(([l,v,c])=>(
+            <div key={l}><div style={{ fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>{l}</div>
+              <div style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:18, color:c, marginTop:1 }}>{v}</div></div>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding:16, overflowY:'auto', display:'flex', flexDirection:'column', gap:16 }}>
+        <div>
+          <div style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400, marginBottom:7 }}>Set delivery · {inside.length} embeds</div>
+          <div style={{ display:'flex', gap:7 }}>{DAct('delivered','Delivered','47,214,166')}{DAct('transit','On the way','245,194,75')}{DAct('none','Not delivered','240,85,107')}</div>
+          <div style={{ display:'flex', gap:7, marginTop:7 }}>
+            <button onClick={()=>ids.length&&onBulkInstall&&onBulkInstall(ids,true)} disabled={!ids.length}
+              style={{ flex:1, padding:'8px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, background:'rgba(47,214,166,.16)', border:'1px solid rgba(47,214,166,.5)', color:T.color.green, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>Mark installed</button>
+            <button onClick={()=>ids.length&&onBulkInstall&&onBulkInstall(ids,false)} disabled={!ids.length}
+              style={{ flex:1, padding:'8px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, background:'rgba(0,0,0,.25)', border:'1px solid '+T.color.line, color:T.color.steel300, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>Un-install</button>
+          </div>
+        </div>
+        <div>
+          <div style={{ display:'grid', gridTemplateColumns:COLS, gap:8, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400, paddingBottom:8, borderBottom:'1px solid '+T.color.lineSoft }}>
+            <span>Mark / type · {marks.length}</span><span style={{textAlign:'right'}}>Pins</span><span style={{textAlign:'right'}}>Deliv</span><span style={{textAlign:'right'}}>Inst</span>
+          </div>
+          {marks.length===0 && <div style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel400, padding:'14px 0' }}>No embeds inside this region.</div>}
+          {marks.map(m=>(
+            <div key={m.mark} style={{ display:'grid', gridTemplateColumns:COLS, gap:8, alignItems:'center', padding:'8px 0', borderBottom:'1px solid '+T.color.lineSoft }}>
+              <span style={{ minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{m.mark}</span>
+                {m.knife && <Badge color={T.color.blue} style={{ marginLeft:6, fontSize:8 }}>KP</Badge>}
+                {m.stub && <Badge color="#FF9650" style={{ marginLeft:4, fontSize:8 }}>SC</Badge>}
+              </span>
+              <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12.5, color:'#fff' }}>{m.embeds}</span>
+              <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12.5, color:T.color.green }}>{m.delivered}{m.transit?<span style={{color:T.color.yellow}}> +{m.transit}</span>:null}</span>
+              <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12.5, color:T.color.green }}>{m.installed}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { PinDetail, ZoneEditor, RegionInfo, Celebrate, NewPinEditor, DatePopover });

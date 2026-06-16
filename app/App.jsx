@@ -123,7 +123,7 @@ function App(){
   const screenEl = {
     map: <MapScreen {...mapProps} />,
     dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,
-    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager} onBulkDelivery={bulkSetDelivery}
+    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager} onBulkDelivery={bulkSetDelivery} onBulkInstall={bulkInstall}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}
                  onAddType={(id,patch)=>{ if(id) { window.fb.set('embeds/'+id, { id, ...(patch||{}) }); track('edit'); } }}
                  onDeleteType={(id)=>{ window.fb.remove('embeds/'+id); track('edit'); }}

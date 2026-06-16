@@ -9,6 +9,7 @@ function Inventory({
   onDeleteType,
   onSyncQtys,
   onBulkDelivery,
+  onBulkInstall,
   canEdit
 }) {
   const [open, setOpen] = React.useState(null); // expanded mark
@@ -54,8 +55,20 @@ function Inventory({
     if (e.hasStub) m.stubColumn = true;
   });
   const ql = q.trim().toLowerCase();
+  // tokenized search — every space-separated term must match somewhere (mark, desc, supplier, plate, notes, sequence)
+  const terms = ql.split(/\s+/).filter(Boolean);
+  const matchRow = r => {
+    if (!terms.length) return true;
+    const hay = [r.id, r.desc, r.supplier, r.plate, r.notes, r.seq && seqLabel(r.seq)].filter(Boolean).join(' ').toLowerCase();
+    return terms.every(t => hay.includes(t));
+  };
+  const matchEmbed = e => {
+    if (!terms.length) return true;
+    const hay = [e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
+    return terms.every(t => hay.includes(t));
+  };
   const rows = Object.values(byMark).filter(r => seqFilter === 'all' || (r._pinned || 0) > 0) // hide marks not present in the selected sequence
-  .filter(r => !ql || String(r.id).toLowerCase().includes(ql) || String(r.desc || '').toLowerCase().includes(ql) || String(r.supplier || '').toLowerCase().includes(ql)).sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {
+  .filter(matchRow).sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {
     numeric: true
   }));
   // when a sequence is selected the "design qty" baseline is the placed count in that sequence (not the master total)
@@ -143,11 +156,7 @@ function Inventory({
 
   // ---- summary view: group the in-scope pins and tally embeds / types / delivered / installed ----
   const groups = React.useMemo(() => {
-    const visible = scoped.filter(e => {
-      if (!ql) return true;
-      const m = String(e.mark || '').toLowerCase();
-      return m.includes(ql) || String(e.grid || '').toLowerCase().includes(ql);
-    });
+    const visible = scoped.filter(matchEmbed);
     const buckets = {};
     const keyOf = e => groupBy === 'sequence' ? e.sequence : groupBy === 'area' ? e.area : groupBy === 'delivery' ? dState(e) : e.hasKnife ? 'knife' : e.hasStub ? 'stub' : 'plain'; // 'attr'
     visible.forEach(e => {
@@ -155,6 +164,7 @@ function Inventory({
       const b = buckets[k] || (buckets[k] = {
         key: k,
         marks: new Set(),
+        ids: [],
         embeds: 0,
         delivered: 0,
         transit: 0,
@@ -163,6 +173,7 @@ function Inventory({
       });
       b.embeds++;
       b.marks.add(e.mark);
+      b.ids.push(e.id);
       const dl = dState(e);
       if (dl === 'delivered') b.delivered++;else if (dl === 'transit') b.transit++;
       if (e.installed) b.installed++;
@@ -194,6 +205,7 @@ function Inventory({
         key: k,
         label: label(k),
         color: color(k),
+        ids: b.ids,
         embeds: b.embeds,
         types: b.marks.size,
         delivered: b.delivered,
@@ -263,7 +275,7 @@ function Inventory({
       alignItems: 'center',
       gap: 7,
       background: 'rgba(0,0,0,.3)',
-      border: '1px solid ' + T.color.line,
+      border: '1px solid ' + (q ? 'rgba(126,120,240,.5)' : T.color.line),
       borderRadius: T.radius.md,
       padding: '0 10px',
       height: 32
@@ -272,12 +284,12 @@ function Inventory({
     name: "search",
     size: 14,
     style: {
-      color: T.color.steel400
+      color: q ? '#A6A0FF' : T.color.steel400
     }
   }), /*#__PURE__*/React.createElement("input", {
     value: q,
     onChange: e => setQ(e.target.value),
-    placeholder: "Search mark / desc / supplier\u2026",
+    placeholder: "Search marks, types, supplier, grid\u2026",
     style: {
       background: 'transparent',
       border: 'none',
@@ -285,10 +297,18 @@ function Inventory({
       color: '#fff',
       fontFamily: T.font.mono,
       fontSize: 12.5,
-      width: isPhone ? 140 : 200
+      width: isPhone ? 140 : 210
     }
-  }), q && /*#__PURE__*/React.createElement("button", {
+  }), q && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.steel400,
+      whiteSpace: 'nowrap'
+    }
+  }, rows.length), q && /*#__PURE__*/React.createElement("button", {
     onClick: () => setQ(''),
+    title: "Clear",
     style: {
       color: T.color.steel400
     }
@@ -459,7 +479,8 @@ function Inventory({
   })), viewMode === 'summary' ? /*#__PURE__*/React.createElement(SummaryGrid, {
     groups: groups,
     isPhone: isPhone,
-    groupBy: groupBy
+    onBulkDelivery: onBulkDelivery,
+    onBulkInstall: onBulkInstall
   }) : /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -1093,7 +1114,9 @@ function StatTile({
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
 function SummaryGrid({
   groups,
-  isPhone
+  isPhone,
+  onBulkDelivery,
+  onBulkInstall
 }) {
   const [openKey, setOpenKey] = React.useState(null);
   if (!groups.length) return /*#__PURE__*/React.createElement(Card, {
@@ -1229,6 +1252,53 @@ function SummaryGrid({
       },
       onClick: e => e.stopPropagation()
     }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 9,
+        letterSpacing: '.12em',
+        textTransform: 'uppercase',
+        color: T.color.steel400,
+        marginBottom: 7
+      }
+    }, "Mark all ", g.embeds, " embeds"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6,
+        flexWrap: 'wrap',
+        marginBottom: 12
+      }
+    }, [['delivered', 'Delivered', '47,214,166'], ['transit', 'On the way', '245,194,75'], ['none', 'Not', '240,85,107']].map(([st, lbl, rgb]) => /*#__PURE__*/React.createElement("button", {
+      key: st,
+      onClick: () => g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st),
+      style: {
+        flex: '1 1 auto',
+        padding: '7px 8px',
+        borderRadius: T.radius.md,
+        fontFamily: T.font.display,
+        fontWeight: 700,
+        fontSize: 11,
+        letterSpacing: '.02em',
+        whiteSpace: 'nowrap',
+        background: `rgba(${rgb},.16)`,
+        border: `1px solid rgba(${rgb},.5)`,
+        color: `rgb(${rgb})`
+      }
+    }, lbl)), /*#__PURE__*/React.createElement("button", {
+      onClick: () => g.ids.length && onBulkInstall && onBulkInstall(g.ids, true),
+      style: {
+        flex: '1 1 auto',
+        padding: '7px 8px',
+        borderRadius: T.radius.md,
+        fontFamily: T.font.display,
+        fontWeight: 700,
+        fontSize: 11,
+        letterSpacing: '.02em',
+        whiteSpace: 'nowrap',
+        background: 'rgba(79,163,242,.16)',
+        border: '1px solid rgba(79,163,242,.5)',
+        color: T.color.blue
+      }
+    }, "Installed")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'grid',
         gridTemplateColumns: MARK_COLS,

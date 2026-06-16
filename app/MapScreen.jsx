@@ -71,6 +71,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [marq, setMarq] = React.useState(null);           // marquee selection rect
   const [poly, setPoly] = React.useState([]);             // polygon vertices in progress
   const [editZone, setEditZone] = React.useState(null);
+  const [infoZone, setInfoZone] = React.useState(null);   // zone whose detailed region info panel is open
   const [selZone, setSelZone] = React.useState(null);
   const [reshape, setReshape] = React.useState(false);
   const [liveZones, setLiveZones] = React.useState(null);
@@ -204,7 +205,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (e.button===1){ e.preventDefault(); const r=relXY(e); try{ vpRef.current.setPointerCapture(e.pointerId); }catch(err){}  // middle-click drag = pan, any tool
       touched.current=true; drag.current={ x:r.x, y:r.y, tx:view.tx, ty:view.ty }; return; }
     if (e.target.closest('[data-pin]')) return;
-    if (e.target.closest('[data-zone],[data-handle]')) return;
+    if (e.target.closest('[data-handle]')) return;   // reshape handles keep their own grab; zones fall through so a drag marquees pins over them
     if (e.target.closest('button, input, textarea, select, a, [data-ui]')) return;
     const {x,y}=relXY(e); const f=toFrac(x,y);
     try{ vpRef.current.setPointerCapture(e.pointerId); }catch(err){}
@@ -385,6 +386,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     // nextPour highlight is derived live from the zone (no pin stamping) — only assign rewrites pins
     if (z.assign){ bulkUpdate(ids, { area:z.area, sequence:z.pour, phase:z.phase||'1', pour:`${z.area}·P${z.pour}` }); }
     if (z.done) onBulkInstall(ids, true);                  // pour complete → stamps install date + who + credits points
+    if (z.setDelivery) onBulkDelivery && onBulkDelivery(ids, z.setDelivery);   // mark delivery status for every embed inside
     const payload = { ...bb, name:z.name||'', area:z.area, pour:z.pour, phase:z.phase||'1', count:ids.length, done:!!z.done, nextPour:!!z.nextPour, assign:!!z.assign, color:z.color||'126,120,240', layer:zoneLayer(z), date:z.date||'', ...(z.points?{points:z.points}:{}) };
     if (z._new){ const key=onAddZone(payload); pushUndo({ type:'remove', id:key }); } else { pushUndo({ type:'set', id:z.id, z:zones.find(zz=>zz.id===z.id) }); onUpdateZone(z.id, payload); }
     setEditZone(null);
@@ -449,19 +451,19 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
                 <g key={z.id}>
                   <polygon data-zone points={dpts} fill={`rgba(${gc},${z.done?0.20:0.12})`}
                     stroke={`rgba(${gc},${on?1:0.9})`} strokeWidth={on?swU*1.6:swU} strokeDasharray={z.done?'none':`${swU*3} ${swU*3}`}
-                    style={{ pointerEvents: (manager && drawMode==='off')?'auto':'none', cursor: (manager && reshape && on)?'move':'pointer' }}
+                    style={{ pointerEvents: (manager && drawMode==='off')?'auto':'none', cursor: (manager && reshape && on)?'move':'crosshair' }}
                     onPointerDown={manager?(e)=>{
                       if(e.button!==0) return;   // middle/right-click bubbles to the viewport → pan, not move
                       const r=relXY(e);
-                      if(drawMode==='off'){ const hit=pinAt(r.x,r.y); if(hit){ e.stopPropagation(); pinPointerDown(e,hit); return; } }   // a pin on top of the zone is clicked first
-                      e.stopPropagation();
-                      if(z.id!==selZone) setReshape(false);   // selecting a different zone starts in select (not move) mode
-                      setSelZone(z.id);
-                      if(reshape && z.id===selZone){   // only drag the whole zone while it's being reshaped
+                      if(drawMode==='off'){ const hit=pinAt(r.x,r.y); if(hit){ e.stopPropagation(); pinPointerDown(e,hit); return; } }   // a pin on top of the zone is grabbed first
+                      // only intercept to MOVE this zone while it's already selected + reshaping;
+                      // a plain press falls through to the viewport so a drag marquee-selects the pins inside.
+                      if(reshape && z.id===selZone){
+                        e.stopPropagation();
                         try{vpRef.current.setPointerCapture(e.pointerId);}catch(_){}
                         const f=toFrac(r.x,r.y); sdrag.current={ id:z.id, base:{...z, points:isPoly(z)?z.points:undefined}, fx:f.fx, fy:f.fy };
                       } }:undefined}
-                    onDoubleClick={manager?(e)=>{ e.stopPropagation(); setEditZone({ ...z, _new:false }); }:undefined} />
+                    onDoubleClick={manager?(e)=>{ e.stopPropagation(); setSelZone(z.id); setReshape(false); setSelPins([]); setSelId(null); }:undefined} />
                   {on && reshape && pts.map((p,i)=>(
                     <circle key={'h'+i} data-handle cx={p[0]} cy={p[1]} r={handleU} fill="#fff" stroke={`rgba(${gc},1)`} strokeWidth={swU}
                       style={{ pointerEvents:'auto', cursor:'grab' }}
@@ -596,6 +598,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:12, display:'flex', gap:6,
             background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.line, borderRadius:T.radius.pill, padding:'6px 8px', boxShadow:T.shadow.card }}>
             <Btn size="sm" kind="ghost" icon="gear" onClick={()=>setEditZone({ ...selectedZone, _new:false })}>Edit</Btn>
+            <Btn size="sm" kind="primary" icon="search" onClick={()=>setInfoZone(selectedZone)}>Info</Btn>
             <Btn size="sm" kind={reshape?'primary':'ghost'} icon="zone" onClick={()=>setReshape(r=>!r)}>{reshape?'Reshaping':'Reshape'}</Btn>
             <Btn size="sm" kind="ghost" icon="layers" onClick={()=>copyZone(selectedZone.id)}>Copy</Btn>
             <Btn size="sm" kind="ghost" icon="trash" onClick={()=>deleteZone(selectedZone.id)}>Delete</Btn>
@@ -612,6 +615,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         {sel && <PinDetail key={sel.id} embed={sel} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
           manager={manager} onDelete={manager?()=>{ requestDeletePins([sel.id]); setSelId(null); }:null} />}
+        {infoZone && <RegionInfo zone={infoZone} embeds={embeds} isPhone={isPhone} pourNo={pourNo[infoZone.id]} onClose={()=>setInfoZone(null)}
+          onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} />}
         {editZone && <ZoneEditor zone={editZone} embeds={embeds} onCancel={()=>setEditZone(null)} onApply={commitZone}
           unplaced={zones.filter(z=>zoneLayer(z)==='WCG Pours' && !hasGeom(z))}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}

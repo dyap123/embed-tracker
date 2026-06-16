@@ -195,6 +195,7 @@ function MapScreen({
   const [marq, setMarq] = React.useState(null); // marquee selection rect
   const [poly, setPoly] = React.useState([]); // polygon vertices in progress
   const [editZone, setEditZone] = React.useState(null);
+  const [infoZone, setInfoZone] = React.useState(null); // zone whose detailed region info panel is open
   const [selZone, setSelZone] = React.useState(null);
   const [reshape, setReshape] = React.useState(false);
   const [liveZones, setLiveZones] = React.useState(null);
@@ -536,7 +537,7 @@ function MapScreen({
       return;
     }
     if (e.target.closest('[data-pin]')) return;
-    if (e.target.closest('[data-zone],[data-handle]')) return;
+    if (e.target.closest('[data-handle]')) return; // reshape handles keep their own grab; zones fall through so a drag marquees pins over them
     if (e.target.closest('button, input, textarea, select, a, [data-ui]')) return;
     const {
       x,
@@ -1191,6 +1192,7 @@ function MapScreen({
       });
     }
     if (z.done) onBulkInstall(ids, true); // pour complete → stamps install date + who + credits points
+    if (z.setDelivery) onBulkDelivery && onBulkDelivery(ids, z.setDelivery); // mark delivery status for every embed inside
     const payload = {
       ...bb,
       name: z.name || '',
@@ -1467,7 +1469,7 @@ function MapScreen({
       strokeDasharray: z.done ? 'none' : `${swU * 3} ${swU * 3}`,
       style: {
         pointerEvents: manager && drawMode === 'off' ? 'auto' : 'none',
-        cursor: manager && reshape && on ? 'move' : 'pointer'
+        cursor: manager && reshape && on ? 'move' : 'crosshair'
       },
       onPointerDown: manager ? e => {
         if (e.button !== 0) return; // middle/right-click bubbles to the viewport → pan, not move
@@ -1479,12 +1481,11 @@ function MapScreen({
             pinPointerDown(e, hit);
             return;
           }
-        } // a pin on top of the zone is clicked first
-        e.stopPropagation();
-        if (z.id !== selZone) setReshape(false); // selecting a different zone starts in select (not move) mode
-        setSelZone(z.id);
+        } // a pin on top of the zone is grabbed first
+        // only intercept to MOVE this zone while it's already selected + reshaping;
+        // a plain press falls through to the viewport so a drag marquee-selects the pins inside.
         if (reshape && z.id === selZone) {
-          // only drag the whole zone while it's being reshaped
+          e.stopPropagation();
           try {
             vpRef.current.setPointerCapture(e.pointerId);
           } catch (_) {}
@@ -1502,10 +1503,10 @@ function MapScreen({
       } : undefined,
       onDoubleClick: manager ? e => {
         e.stopPropagation();
-        setEditZone({
-          ...z,
-          _new: false
-        });
+        setSelZone(z.id);
+        setReshape(false);
+        setSelPins([]);
+        setSelId(null);
       } : undefined
     }), on && reshape && pts.map((p, i) => /*#__PURE__*/React.createElement("circle", {
       key: 'h' + i,
@@ -2039,6 +2040,11 @@ function MapScreen({
     })
   }, "Edit"), /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
+    kind: "primary",
+    icon: "search",
+    onClick: () => setInfoZone(selectedZone)
+  }, "Info"), /*#__PURE__*/React.createElement(Btn, {
+    size: "sm",
     kind: reshape ? 'primary' : 'ghost',
     icon: "zone",
     onClick: () => setReshape(r => !r)
@@ -2094,6 +2100,14 @@ function MapScreen({
       requestDeletePins([sel.id]);
       setSelId(null);
     } : null
+  }), infoZone && /*#__PURE__*/React.createElement(RegionInfo, {
+    zone: infoZone,
+    embeds: embeds,
+    isPhone: isPhone,
+    pourNo: pourNo[infoZone.id],
+    onClose: () => setInfoZone(null),
+    onBulkDelivery: onBulkDelivery,
+    onBulkInstall: onBulkInstall
   }), editZone && /*#__PURE__*/React.createElement(ZoneEditor, {
     zone: editZone,
     embeds: embeds,

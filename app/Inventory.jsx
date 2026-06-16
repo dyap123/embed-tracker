@@ -1,6 +1,6 @@
 /* EmbedYap — Inventory by embed MARK (201A, 218A…) with editable per-type info + delivery tracking */
 const INV_COLS = '1.4fr .58fr .58fr .72fr .72fr 1.05fr 28px';   // mark·desc | qty | pinned | delivered | installed | remaining | chevron
-function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, canEdit }){
+function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
   const [seqFilter, setSeqFilter] = React.useState('all');   // scope counts + check-off to one sequence
@@ -28,9 +28,15 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     const dl = dState(e); if(dl==='delivered') m._delv=(m._delv||0)+1; else if(dl==='transit') m._transit=(m._transit||0)+1;
     if(e.hasKnife) m.knifePlate = true; if(e.hasStub) m.stubColumn = true; });
   const ql = q.trim().toLowerCase();
+  // tokenized search — every space-separated term must match somewhere (mark, desc, supplier, plate, notes, sequence)
+  const terms = ql.split(/\s+/).filter(Boolean);
+  const matchRow = (r)=>{ if(!terms.length) return true; const hay=[r.id, r.desc, r.supplier, r.plate, r.notes, r.seq&&seqLabel(r.seq)].filter(Boolean).join(' ').toLowerCase();
+    return terms.every(t=>hay.includes(t)); };
+  const matchEmbed = (e)=>{ if(!terms.length) return true; const hay=[e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
+    return terms.every(t=>hay.includes(t)); };
   const rows = Object.values(byMark)
     .filter(r=> seqFilter==='all' || (r._pinned||0)>0)   // hide marks not present in the selected sequence
-    .filter(r=> !ql || String(r.id).toLowerCase().includes(ql) || String(r.desc||'').toLowerCase().includes(ql) || String(r.supplier||'').toLowerCase().includes(ql))
+    .filter(matchRow)
     .sort((a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true}));
   // when a sequence is selected the "design qty" baseline is the placed count in that sequence (not the master total)
   const num = (r)=>({ qty: (seqFilter==='all' && r.qty!=null)?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0, delv:r._delv||0, transit:r._transit||0 });
@@ -54,13 +60,12 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
 
   // ---- summary view: group the in-scope pins and tally embeds / types / delivered / installed ----
   const groups = React.useMemo(()=>{
-    const visible = scoped.filter(e=>{ if(!ql) return true; const m=String(e.mark||'').toLowerCase();
-      return m.includes(ql) || String(e.grid||'').toLowerCase().includes(ql); });
+    const visible = scoped.filter(matchEmbed);
     const buckets = {};
     const keyOf = (e)=> groupBy==='sequence' ? e.sequence : groupBy==='area' ? e.area
       : groupBy==='delivery' ? dState(e) : (e.hasKnife?'knife':e.hasStub?'stub':'plain');   // 'attr'
-    visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
-      b.embeds++; b.marks.add(e.mark); const dl=dState(e); if(dl==='delivered') b.delivered++; else if(dl==='transit') b.transit++; if(e.installed) b.installed++;
+    visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), ids:[], embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
+      b.embeds++; b.marks.add(e.mark); b.ids.push(e.id); const dl=dState(e); if(dl==='delivered') b.delivered++; else if(dl==='transit') b.transit++; if(e.installed) b.installed++;
       const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, embeds:0, delivered:0, transit:0, installed:0 });
       mm.embeds++; if(dl==='delivered') mm.delivered++; else if(dl==='transit') mm.transit++; if(e.installed) mm.installed++; });
     const order = groupBy==='sequence' ? SEQS : groupBy==='area' ? (window.AREAS||['A','B','C','D'])
@@ -72,7 +77,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
       : groupBy==='attr' ? (k==='knife'?T.color.blue:k==='stub'?'#FF9650':T.color.steel300) : T.color.amberHot;
     const keys = Object.keys(buckets).sort((a,b)=>{ const ia=order.indexOf(a), ib=order.indexOf(b);
       return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(String(b),undefined,{numeric:true}); });
-    return keys.map(k=>{ const b=buckets[k]; return { key:k, label:label(k), color:color(k), embeds:b.embeds, types:b.marks.size, delivered:b.delivered, transit:b.transit, installed:b.installed,
+    return keys.map(k=>{ const b=buckets[k]; return { key:k, label:label(k), color:color(k), ids:b.ids, embeds:b.embeds, types:b.marks.size, delivered:b.delivered, transit:b.transit, installed:b.installed,
       marksList: Object.values(b.byMark).sort((a,b2)=> String(a.mark).localeCompare(String(b2.mark), undefined, {numeric:true})) }; });
   }, [scoped, groupBy, ql]);
 
@@ -89,12 +94,13 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
               {SEQS.map(s=><option key={s} value={s}>{seqLabel(s)}</option>)}
             </select>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line,
+          <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(q?'rgba(126,120,240,.5)':T.color.line),
             borderRadius:T.radius.md, padding:'0 10px', height:32 }}>
-            <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
-            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search mark / desc / supplier…"
-              style={{ background:'transparent', border:'none', outline:'none', color:'#fff', fontFamily:T.font.mono, fontSize:12.5, width:isPhone?140:200 }} />
-            {q && <button onClick={()=>setQ('')} style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
+            <Icon name="search" size={14} style={{ color:q?'#A6A0FF':T.color.steel400 }} />
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search marks, types, supplier, grid…"
+              style={{ background:'transparent', border:'none', outline:'none', color:'#fff', fontFamily:T.font.mono, fontSize:12.5, width:isPhone?140:210 }} />
+            {q && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400, whiteSpace:'nowrap' }}>{rows.length}</span>}
+            {q && <button onClick={()=>setQ('')} title="Clear" style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
           </div>
           <Segmented size="sm" value={viewMode} onChange={setViewMode} options={[{value:'table',label:'Table'},{value:'summary',label:'Summary'}]} />
           {canEdit && <Btn kind="ghost" size="sm" icon="bolt" onClick={()=>onSyncQtys && onSyncQtys()} title="Set every type's quantity to its current placed count on the plan">Sync to map</Btn>}
@@ -135,7 +141,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
         )}
 
         {viewMode==='summary' ? (
-          <SummaryGrid groups={groups} isPhone={isPhone} groupBy={groupBy} />
+          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} />
         ) : (
         <Card pad={0} glow style={{ marginTop:18 }}>
           {!isPhone && (
@@ -315,7 +321,7 @@ function StatTile({ label, value, sub, accent='#fff' }){
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
-function SummaryGrid({ groups, isPhone }){
+function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
   const [openKey, setOpenKey] = React.useState(null);
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
   const MARK_COLS = 'minmax(0,1fr) 44px 60px 44px';
@@ -348,6 +354,18 @@ function SummaryGrid({ groups, isPhone }){
             <MiniBar label="Installed" pct={ipct} color={T.color.green} />
             {isOpen && (
               <div style={{ marginTop:13, paddingTop:12, borderTop:'1px solid '+T.color.lineSoft }} onClick={e=>e.stopPropagation()}>
+                {/* mark the whole group delivered / on the way / installed */}
+                <div style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400, marginBottom:7 }}>Mark all {g.embeds} embeds</div>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
+                  {[['delivered','Delivered','47,214,166'],['transit','On the way','245,194,75'],['none','Not','240,85,107']].map(([st,lbl,rgb])=>(
+                    <button key={st} onClick={()=>g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st)}
+                      style={{ flex:'1 1 auto', padding:'7px 8px', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.02em', whiteSpace:'nowrap',
+                        background:`rgba(${rgb},.16)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})` }}>{lbl}</button>
+                  ))}
+                  <button onClick={()=>g.ids.length && onBulkInstall && onBulkInstall(g.ids, true)}
+                    style={{ flex:'1 1 auto', padding:'7px 8px', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.02em', whiteSpace:'nowrap',
+                      background:'rgba(79,163,242,.16)', border:'1px solid rgba(79,163,242,.5)', color:T.color.blue }}>Installed</button>
+                </div>
                 <div style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400, paddingBottom:7 }}>
                   <span>Mark · {g.types} types</span><span style={{ textAlign:'right' }}>Pins</span><span style={{ textAlign:'right' }}>Deliv</span><span style={{ textAlign:'right' }}>Inst</span>
                 </div>

@@ -328,6 +328,7 @@ function App() {
       types: master,
       canEdit: !!user.manager,
       onBulkDelivery: bulkSetDelivery,
+      onBulkInstall: bulkInstall,
       onEditType: (mark, patch) => {
         window.fb.update('embeds/' + mark, patch);
         track('edit');
