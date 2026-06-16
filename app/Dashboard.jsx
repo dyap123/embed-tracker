@@ -158,7 +158,7 @@ function Header({ title, sub, children }){
         <Kicker>{sub}</Kicker>
         <h1 style={{ fontFamily:T.font.display, fontWeight:800, fontSize:34, margin:'6px 0 0', textTransform:'uppercase', letterSpacing:'.01em' }}>{title}</h1>
       </div>
-      <div style={{ display:'flex', gap:8 }}>{children}</div>
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', justifyContent:'flex-end' }}>{children}</div>
     </div>
   );
 }

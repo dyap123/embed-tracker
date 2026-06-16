@@ -465,7 +465,10 @@ function Header({
   }, title)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      gap: 8
+      gap: 8,
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'flex-end'
     }
   }, children));
 }

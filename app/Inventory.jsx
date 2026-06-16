@@ -1,9 +1,17 @@
 /* EmbedYap — Inventory by embed MARK (201A, 218A…) with editable per-type info + delivery tracking */
 const INV_COLS = '1.4fr .58fr .58fr .72fr .72fr 1.05fr 28px';   // mark·desc | qty | pinned | delivered | installed | remaining | chevron
+const DELIV_FILTERS = [   // delivery-status scope for the inventory page
+  { value:'all',         label:'All deliveries' },
+  { value:'transit',     label:'Incoming' },        // on the way — what's coming in to check off
+  { value:'none',        label:'Not delivered' },   // not on site yet / not ordered
+  { value:'outstanding', label:'Outstanding' },     // anything not fully delivered
+  { value:'delivered',   label:'Delivered' },
+];
 function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
   const [seqFilter, setSeqFilter] = React.useState('all');   // scope counts + check-off to one sequence
+  const [delivFilter, setDelivFilter] = React.useState('all');  // scope to a delivery status (incoming / awaiting / delivered)
   const [viewMode, setViewMode] = React.useState('table');   // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence');  // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
   const [adding, setAdding] = React.useState(false);
@@ -11,8 +19,16 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const [newDesc, setNewDesc] = React.useState('');
   const dState = window.deliveryState;
 
-  // pins in scope of the sequence filter (drives every count + the bulk check-off)
-  const scoped = seqFilter==='all' ? embeds : embeds.filter(e=>e.sequence===seqFilter);
+  // delivery-status matcher: incoming = on the way, awaiting = not delivered yet, outstanding = anything not fully delivered
+  const matchDeliv = (e)=> delivFilter==='all' ? true
+    : delivFilter==='transit'     ? dState(e)==='transit'
+    : delivFilter==='none'        ? dState(e)==='none'
+    : delivFilter==='delivered'   ? dState(e)==='delivered'
+    : delivFilter==='outstanding' ? dState(e)!=='delivered'
+    : true;
+  const anyFilter = seqFilter!=='all' || delivFilter!=='all';
+  // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
+  const scoped = embeds.filter(e=> (seqFilter==='all'||e.sequence===seqFilter) && matchDeliv(e));
 
   // headline stats for the scope — "how many embeds / types in the selected region"
   const stats = { embeds: scoped.length, types: new Set(scoped.map(e=>e.mark).filter(Boolean)).size,
@@ -35,11 +51,11 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const matchEmbed = (e)=>{ if(!terms.length) return true; const hay=[e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
     return terms.every(t=>hay.includes(t)); };
   const rows = Object.values(byMark)
-    .filter(r=> seqFilter==='all' || (r._pinned||0)>0)   // hide marks not present in the selected sequence
+    .filter(r=> !anyFilter || (r._pinned||0)>0)   // hide marks with nothing in the active filter scope
     .filter(matchRow)
     .sort((a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true}));
-  // when a sequence is selected the "design qty" baseline is the placed count in that sequence (not the master total)
-  const num = (r)=>({ qty: (seqFilter==='all' && r.qty!=null)?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0, delv:r._delv||0, transit:r._transit||0 });
+  // with no scope filter the "design qty" baseline is the master total; otherwise it's the in-scope placed count
+  const num = (r)=>({ qty: (!anyFilter && r.qty!=null)?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0, delv:r._delv||0, transit:r._transit||0 });
   const tot = rows.reduce((a,r)=>{ const n=num(r); return { qty:a.qty+n.qty, pinned:a.pinned+n.pinned, inst:a.inst+n.inst, delv:a.delv+n.delv, transit:a.transit+n.transit }; }, {qty:0,pinned:0,inst:0,delv:0,transit:0});
   // per-mark × sequence breakdowns (full set — the expander shows every sequence regardless of the filter)
   const SEQS = window.SEQUENCES || ['1','2','3','4'];
@@ -84,7 +100,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
       <div className="ey-fade" style={{ maxWidth:1080, margin:'0 auto', padding:isPhone?'18px 14px 90px':'28px 30px 60px' }}>
-        <Header title="Inventory" sub={`By embed type · ${rows.length} marks${seqFilter!=='all'?' · '+seqLabel(seqFilter):''}`}>
+        <Header title="Inventory" sub={`By embed type · ${rows.length} marks${seqFilter!=='all'?' · '+seqLabel(seqFilter):''}${delivFilter!=='all'?' · '+DELIV_FILTERS.find(f=>f.value===delivFilter).label:''}`}>
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(seqFilter!=='all'?'rgba(126,120,240,.5)':T.color.line),
             borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Filter quantities + check-off to one pour sequence">
             <Icon name="filter" size={13} style={{ color:seqFilter!=='all'?'#A6A0FF':T.color.steel400 }} />
@@ -92,6 +108,14 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
               style={{ background:'transparent', border:'none', outline:'none', color:seqFilter!=='all'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
               <option value="all">All sequences</option>
               {SEQS.map(s=><option key={s} value={s}>{seqLabel(s)}</option>)}
+            </select>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(delivFilter!=='all'?'rgba(245,194,75,.55)':T.color.line),
+            borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Filter to a delivery status — pick Incoming to check off what's coming in">
+            <Icon name="inventory" size={14} style={{ color:delivFilter!=='all'?'#F5C24B':T.color.steel400 }} />
+            <select value={delivFilter} onChange={e=>setDelivFilter(e.target.value)}
+              style={{ background:'transparent', border:'none', outline:'none', color:delivFilter!=='all'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
+              {DELIV_FILTERS.map(f=><option key={f.value} value={f.value}>{f.label}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(q?'rgba(126,120,240,.5)':T.color.line),
