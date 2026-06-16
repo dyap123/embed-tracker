@@ -138,6 +138,8 @@ function App() {
       }
     } else if ('rfi' in p) {
       kind = 'rfi';
+    } else if ('delivery' in p) {
+      kind = 'delivery';
     }
     window.fb.update('pins/' + id, p);
     track(kind);
@@ -145,6 +147,13 @@ function App() {
   function bulkUpdate(ids, patch) {
     ids.forEach(id => window.fb.update('pins/' + id, patch));
     track('zone');
+  }
+  // set delivery-to-site status on a group of pins (no points — logistics, not install credit)
+  function bulkSetDelivery(ids, status) {
+    ids.forEach(id => window.fb.update('pins/' + id, {
+      delivery: status
+    }));
+    track('delivery');
   }
   // mark a group installed / to-install (credits points for the net change, one toast)
   function bulkInstall(ids, val) {
@@ -299,6 +308,7 @@ function App() {
     onRestorePin: restorePin,
     onMovePins: movePins,
     onBulkInstall: bulkInstall,
+    onBulkDelivery: bulkSetDelivery,
     grid: effGrid,
     savedGrid: grid,
     gridDraft,
@@ -317,6 +327,7 @@ function App() {
       isPhone: isPhone,
       types: master,
       canEdit: !!user.manager,
+      onBulkDelivery: bulkSetDelivery,
       onEditType: (mark, patch) => {
         window.fb.update('embeds/' + mark, patch);
         track('edit');

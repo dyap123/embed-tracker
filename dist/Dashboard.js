@@ -4,18 +4,26 @@ function Dashboard({
   zones = [],
   isPhone
 }) {
-  const k = kpis(embeds);
-  const series = installSeries(embeds);
+  const [seqFilter, setSeqFilter] = React.useState('all'); // scope every metric to one pour sequence
+  const view = seqFilter === 'all' ? embeds : embeds.filter(e => e.sequence === seqFilter);
+  const k = kpis(view);
+  const series = installSeries(view);
   const [toast, setToast] = React.useState(null);
   function exp(kind) {
-    const f = window.exportEmbeds(embeds, kind);
+    const f = window.exportEmbeds(view, kind);
     if (f) {
       setToast(f);
       setTimeout(() => setToast(null), 2600);
     }
   }
+  const dCounts = {
+    delivered: view.filter(e => deliveryState(e) === 'delivered').length,
+    transit: view.filter(e => deliveryState(e) === 'transit').length,
+    none: view.filter(e => deliveryState(e) === 'none').length
+  };
+  const dSummary = window.deliverySummary(view);
   const byArea = AREAS.map(a => {
-    const list = embeds.filter(e => e.area === a);
+    const list = view.filter(e => e.area === a);
     return {
       a,
       pinned: list.length,
@@ -23,7 +31,7 @@ function Dashboard({
     };
   });
   const bySeq = SEQUENCES.map(s => {
-    const list = embeds.filter(e => e.sequence === s);
+    const list = view.filter(e => e.sequence === s);
     return {
       s,
       pinned: list.length,
@@ -31,11 +39,11 @@ function Dashboard({
     };
   });
   // next pour = embeds tagged on the plan (zone "Next pour" toggle)
-  const nextPins = embeds.filter(e => e.nextPour);
+  const nextPins = view.filter(e => e.nextPour);
   const nextRemaining = nextPins.filter(e => !e.installed).length;
   // scheduled next-pour zones (carry the date); count live embeds inside by area+sequence(+phase)
   const cnt = z => {
-    const inst = embeds.filter(e => e.nextPour && e.area === z.area && String(e.sequence) === String(z.pour) && String(e.phase || '1') === String(z.phase || '1'));
+    const inst = view.filter(e => e.nextPour && e.area === z.area && String(e.sequence) === String(z.pour) && String(e.phase || '1') === String(z.phase || '1'));
     return {
       total: inst.length,
       done: inst.filter(e => e.installed).length
@@ -67,8 +75,44 @@ function Dashboard({
     }
   }, /*#__PURE__*/React.createElement(Header, {
     title: "Dashboard",
-    sub: "Embed install \u2014 live status"
-  }, /*#__PURE__*/React.createElement(Btn, {
+    sub: `Embed install + delivery — live status${seqFilter !== 'all' ? ' · ' + seqLabel(seqFilter) : ''}`
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 7,
+      background: 'rgba(0,0,0,.3)',
+      border: '1px solid ' + (seqFilter !== 'all' ? 'rgba(126,120,240,.5)' : T.color.line),
+      borderRadius: T.radius.md,
+      padding: '0 8px',
+      height: 32
+    },
+    title: "Scope every tile + chart to one pour sequence"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "filter",
+    size: 13,
+    style: {
+      color: seqFilter !== 'all' ? '#A6A0FF' : T.color.steel400
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: seqFilter,
+    onChange: e => setSeqFilter(e.target.value),
+    style: {
+      background: 'transparent',
+      border: 'none',
+      outline: 'none',
+      color: seqFilter !== 'all' ? '#fff' : T.color.steel200,
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      colorScheme: 'dark',
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All sequences"), SEQUENCES.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, seqLabel(s))))), /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
     icon: "export",
@@ -81,7 +125,7 @@ function Dashboard({
   }, "PDF")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: `repeat(${isPhone ? 2 : 5},1fr)`,
+      gridTemplateColumns: `repeat(${isPhone ? 2 : 7},1fr)`,
       gap: 12,
       marginTop: 18
     }
@@ -94,6 +138,16 @@ function Dashboard({
     value: k.pinned,
     sub: "placed on plan",
     accent: T.color.blue
+  }), /*#__PURE__*/React.createElement(Kpi, {
+    label: "Delivered",
+    value: dCounts.delivered,
+    sub: "on site",
+    accent: T.color.green
+  }), /*#__PURE__*/React.createElement(Kpi, {
+    label: "On the way",
+    value: dCounts.transit,
+    sub: "in transit",
+    accent: T.color.yellow
   }), /*#__PURE__*/React.createElement(Kpi, {
     label: "Installed",
     value: k.installed,
@@ -145,6 +199,84 @@ function Dashboard({
   }), /*#__PURE__*/React.createElement(SeqBars, {
     data: bySeq
   }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: isPhone ? '1fr' : '1.6fr 1fr',
+      gap: 14,
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement(Card, {
+    pad: 20,
+    glow: true
+  }, /*#__PURE__*/React.createElement(ChartHead, {
+    title: "Delivery by sequence",
+    note: "delivered / placed"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 13,
+      marginTop: 14
+    }
+  }, dSummary.rows.map(r => /*#__PURE__*/React.createElement(BarRow, {
+    key: r.seq,
+    label: seqLabel(r.seq),
+    value: r.delivered,
+    max: r.placed,
+    color: T.color.green,
+    note: r.transit ? `+${r.transit} on the way` : null
+  })))), /*#__PURE__*/React.createElement(Card, {
+    pad: 20,
+    glow: true
+  }, /*#__PURE__*/React.createElement(ChartHead, {
+    title: "Delivery status",
+    note: "all placed embeds"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement(Ring, {
+    pct: dSummary.total.pct,
+    color: T.color.green,
+    size: 64
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 800,
+      fontSize: 32,
+      lineHeight: .9,
+      color: T.color.green
+    }
+  }, dSummary.total.pct, "%"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.steel400,
+      marginTop: 4
+    }
+  }, "delivered on site"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 9,
+      marginTop: 18
+    }
+  }, /*#__PURE__*/React.createElement(DelivStatRow, {
+    color: T.color.green,
+    label: "Delivered",
+    value: dCounts.delivered
+  }), /*#__PURE__*/React.createElement(DelivStatRow, {
+    color: T.color.yellow,
+    label: "On the way",
+    value: dCounts.transit
+  }), /*#__PURE__*/React.createElement(DelivStatRow, {
+    color: T.color.red,
+    label: "Not delivered",
+    value: dCounts.none
+  })))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: isPhone ? '1fr' : '1.6fr 1fr',
@@ -276,7 +408,7 @@ function Dashboard({
     title: "Anchor bolts by sequence",
     note: "count per mark \xB7 installed / total"
   })), /*#__PURE__*/React.createElement(SeqMatrix, {
-    embeds: embeds,
+    embeds: view,
     isPhone: isPhone
   }))), toast && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -528,7 +660,8 @@ function BarRow({
   label,
   value,
   max,
-  color
+  color,
+  note
 }) {
   const pct = max ? Math.round(value / max * 100) : 0;
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -544,7 +677,14 @@ function BarRow({
       fontWeight: 600,
       letterSpacing: '.02em'
     }
-  }, label), /*#__PURE__*/React.createElement("span", {
+  }, label, note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 10.5,
+      color: T.color.yellow,
+      marginLeft: 8
+    }
+  }, note)), /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: T.font.mono,
       color: T.color.steel300,
@@ -572,6 +712,43 @@ function BarRow({
       boxShadow: `0 0 12px -2px ${color}`
     }
   })));
+}
+
+/* delivery status legend row — colored dot + label + count */
+function DelivStatRow({
+  color,
+  label,
+  value
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      fontSize: 13.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 11,
+      height: 11,
+      borderRadius: '50%',
+      background: color,
+      flex: '0 0 auto',
+      boxShadow: `0 0 8px -1px ${color}`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      color: T.color.offwhite
+    }
+  }, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontWeight: 700,
+      fontSize: 15,
+      color
+    }
+  }, value));
 }
 
 /* anchor-bolt mark × sequence count matrix (installed / total per cell) */

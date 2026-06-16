@@ -134,6 +134,7 @@ function MapScreen({
   onRestorePin,
   onMovePins,
   onBulkInstall,
+  onBulkDelivery,
   grid,
   savedGrid,
   gridDraft,
@@ -164,6 +165,7 @@ function MapScreen({
   const [filter, setFilter] = React.useState('all'); // status filter
   const [cat, setCat] = React.useState('all'); // knife-plate filter
   const [stub, setStub] = React.useState('all'); // stub-column filter
+  const [colorMode, setColorMode] = React.useState('install'); // 'install' | 'delivery' — what the dot color shows
   const [tool, setTool] = React.useState('select'); // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null); // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null); // {x,y} cursor preview while placing
@@ -419,8 +421,14 @@ function MapScreen({
     ctx.closePath();
   }
   function drawPin(ctx, e, x, y, on, picked) {
-    const st = pinState(e);
-    const col = e.hasStub && st !== 'installed' ? '#FF9650' : STATE[st].color;
+    let col;
+    if (colorMode === 'delivery') {
+      col = DELIVERY[deliveryState(e)].color;
+    } // delivery layer: green/yellow/red by on-site status
+    else {
+      const st = pinState(e);
+      col = e.hasStub && st !== 'installed' ? '#FF9650' : STATE[st].color;
+    }
     const r = on ? 8 : 6;
     ctx.beginPath();
     ctx.arc(x, y, r + (picked ? 3 : on ? 3 : 1.5), 0, 6.2832); // glow / selection ring
@@ -1125,6 +1133,10 @@ function MapScreen({
     m[k] = embeds.filter(e => pinState(e) === k).length;
     return m;
   }, {});
+  const deliveryCounts = DELIVERY_ORDER.reduce((m, k) => {
+    m[k] = embeds.filter(e => deliveryState(e) === k).length;
+    return m;
+  }, {});
   const knifeCount = embeds.filter(e => e.hasKnife).length;
   const stubCount = embeds.filter(e => e.hasStub).length;
   const labelsOn = view.s > 2.2;
@@ -1252,6 +1264,8 @@ function MapScreen({
     setCat,
     stub,
     setStub,
+    colorMode,
+    setColorMode,
     tool,
     setTool,
     drawMode,
@@ -1918,17 +1932,21 @@ function MapScreen({
       display: 'flex',
       alignItems: 'center',
       gap: 8,
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      maxWidth: 'calc(100vw - 28px)',
       background: steelPlate('#161D29', '#0F141C'),
       border: '1px solid ' + T.color.cyan,
-      borderRadius: T.radius.pill,
-      padding: '6px 8px 6px 14px',
+      borderRadius: T.radius.lg,
+      padding: '7px 10px',
       boxShadow: T.shadow.card
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: T.font.display,
       fontWeight: 700,
-      fontSize: 13.5
+      fontSize: 13.5,
+      padding: '0 4px'
     }
   }, selPins.length, " selected"), /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
@@ -1940,7 +1958,47 @@ function MapScreen({
     kind: "ghost",
     icon: "close",
     onClick: () => onBulkInstall(selPins, false)
-  }, "Un-install"), /*#__PURE__*/React.createElement(Btn, {
+  }, "Un-install"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.color.line
+    }
+  }), [['delivered', 'Delivered', '47,214,166'], ['transit', 'On the way', '245,194,75'], ['none', 'Not delivered', '240,85,107']].map(([st, label, rgb]) => /*#__PURE__*/React.createElement("button", {
+    key: st,
+    onClick: () => onBulkDelivery && onBulkDelivery(selPins, st),
+    title: 'Mark ' + selPins.length + ' as ' + label.toLowerCase(),
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      height: 28,
+      padding: '0 11px',
+      borderRadius: T.radius.pill,
+      background: `rgba(${rgb},.16)`,
+      border: `1px solid rgba(${rgb},.5)`,
+      color: `rgb(${rgb})`,
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 11.5,
+      letterSpacing: '.03em',
+      whiteSpace: 'nowrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: '50%',
+      background: `rgb(${rgb})`,
+      boxShadow: `0 0 6px -1px rgb(${rgb})`
+    }
+  }), label)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.color.line
+    }
+  }), /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
     kind: "ghost",
     icon: "layers",
@@ -1996,6 +2054,8 @@ function MapScreen({
     onClick: () => deleteZone(selectedZone.id)
   }, "Delete")), showLegend && /*#__PURE__*/React.createElement(Legend, {
     counts: counts,
+    deliveryCounts: deliveryCounts,
+    colorMode: colorMode,
     total: embeds.length,
     knifeCount: knifeCount,
     stubCount: stubCount,
@@ -2036,6 +2096,7 @@ function MapScreen({
     } : null
   }), editZone && /*#__PURE__*/React.createElement(ZoneEditor, {
     zone: editZone,
+    embeds: embeds,
     onCancel: () => setEditZone(null),
     onApply: commitZone,
     unplaced: zones.filter(z => zoneLayer(z) === 'WCG Pours' && !hasGeom(z)),
@@ -2159,6 +2220,8 @@ function MapToolbar({
   setCat,
   stub,
   setStub,
+  colorMode,
+  setColorMode,
   tool,
   setTool,
   drawMode,
@@ -2369,6 +2432,35 @@ function MapToolbar({
     style: {
       display: 'flex',
       alignItems: 'center',
+      gap: 6,
+      background: 'rgba(0,0,0,.3)',
+      border: '1px solid ' + T.color.line,
+      borderRadius: T.radius.md,
+      padding: '0 4px 0 9px',
+      height: 30
+    },
+    title: "What the pin colors show"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "layers",
+    size: 13,
+    style: {
+      color: colorMode === 'delivery' ? '#FF9650' : T.color.steel400
+    }
+  }), /*#__PURE__*/React.createElement(Segmented, {
+    size: "sm",
+    value: colorMode,
+    onChange: setColorMode,
+    options: [{
+      value: 'install',
+      label: 'Install'
+    }, {
+      value: 'delivery',
+      label: 'Delivery'
+    }]
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
       gap: 7,
       background: 'rgba(0,0,0,.3)',
       border: '1px solid ' + T.color.line,
@@ -2556,11 +2648,14 @@ const zbtn = {
 /* ---- legend ---- */
 function Legend({
   counts,
+  deliveryCounts = {},
+  colorMode = 'install',
   total,
   knifeCount,
   stubCount,
   onClose
 }) {
+  const delivery = colorMode === 'delivery';
   return /*#__PURE__*/React.createElement("div", {
     "data-ui": true,
     style: {
@@ -2581,7 +2676,7 @@ function Legend({
       alignItems: 'center',
       marginBottom: 9
     }
-  }, /*#__PURE__*/React.createElement(Kicker, null, "Legend"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Kicker, null, delivery ? 'Delivery' : 'Legend'), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     style: {
       color: T.color.steel400
@@ -2594,7 +2689,29 @@ function Legend({
       display: 'grid',
       gap: 7
     }
-  }, STATE_ORDER.map(k => /*#__PURE__*/React.createElement("div", {
+  }, delivery ? DELIVERY_ORDER.map(k => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement(Dot, {
+    color: DELIVERY[k].color,
+    size: 11
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.color.offwhite,
+      flex: 1
+    }
+  }, DELIVERY[k].label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      color: T.color.steel300
+    }
+  }, deliveryCounts[k] || 0))) : STATE_ORDER.map(k => /*#__PURE__*/React.createElement("div", {
     key: k,
     style: {
       display: 'flex',

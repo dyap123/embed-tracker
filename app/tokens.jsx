@@ -81,4 +81,12 @@ const STATE = {
   stub:      { key:'stub',      label:'Stub column',      color:'#FF9650',      dot:'#FF9650' },
 };
 
-Object.assign(window, { T, TEX, steelPlate, navyPlate, accentPlate, STATE });
+// delivery-to-site status (parallel to STATE; installed implies delivered — see deliveryState in data.jsx)
+const DELIVERY = {
+  delivered: { key:'delivered', label:'Delivered',     color:T.color.green },   // mint  — on site
+  transit:   { key:'transit',   label:'On the way',    color:T.color.yellow },  // gold  — shipped / in transit
+  none:      { key:'none',      label:'Not delivered', color:T.color.red },     // coral — not on site yet
+};
+const DELIVERY_ORDER = ['delivered','transit','none'];
+
+Object.assign(window, { T, TEX, steelPlate, navyPlate, accentPlate, STATE, DELIVERY, DELIVERY_ORDER });

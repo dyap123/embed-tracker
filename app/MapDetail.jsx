@@ -4,6 +4,7 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
   const [celebrate, setCelebrate] = React.useState(false);
   const [mark, setMark] = React.useState(embed.mark||'');
   const st = pinState(embed);
+  const ds = deliveryState(embed);
 
   function toggleInstall(){
     const now = !embed.installed;
@@ -48,6 +49,7 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
         </div>
         <div style={{ display:'flex', gap:6, marginTop:12, flexWrap:'wrap' }}>
           <Badge color={STATE[st].color} fill={st==='installed'}>{STATE[st].label}</Badge>
+          <Badge color={DELIVERY[ds].color} fill={ds==='delivered'}>{DELIVERY[ds].label}</Badge>
           {embed.hasKnife && <Badge color={T.color.blue}>Knife plate</Badge>}
           {embed.hasStub && <Badge color="#FF9650">{embed.stubType ? 'Stub · '+embed.stubType : 'Stub column'}</Badge>}
           <Badge color={T.color.steel300}>{embed.pour}</Badge>
@@ -103,6 +105,24 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
             <Segmented size="sm" value={embed.area} onChange={v=>updateEmbed(embed.id,{ area:v, pour:`${v}·P${embed.sequence}` })}
               options={AREAS.map(a=>({value:a,label:a}))} />
           </Field>
+        </div>
+
+        {/* delivery-to-site status — 3-way; installed steel is delivered by definition */}
+        <div style={{ background:`linear-gradient(180deg,rgba(${ds==='delivered'?'47,214,166':ds==='transit'?'245,194,75':'240,85,107'},.14),rgba(0,0,0,.04))`,
+          border:'1px solid '+DELIVERY[ds].color+'55', borderRadius:T.radius.lg, padding:'14px 16px' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:embed.installed?0:11 }}>
+            <div>
+              <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:17, textTransform:'uppercase', letterSpacing:'.03em' }}>Delivery</div>
+              <div style={{ fontSize:12, color:T.color.steel300, marginTop:2 }}>
+                {embed.installed? 'Installed — counts as delivered' : 'Track this embed to site'}</div>
+            </div>
+            <Dot color={DELIVERY[ds].color} size={12} pulse={ds==='transit'} />
+          </div>
+          {!embed.installed && (
+            <Segmented size="sm" value={embed.delivery||'none'} onChange={v=>updateEmbed(embed.id,{ delivery:v })}
+              options={[{value:'none',label:'Not yet'},{value:'transit',label:'On the way'},{value:'delivered',label:'Delivered'}]}
+              style={{ display:'flex', flexWrap:'wrap' }} />
+          )}
         </div>
 
         {/* install toggle */}
@@ -186,7 +206,17 @@ const ZONE_COLORS = [
   ['170,220,70','Lime'],['245,194,75','Gold'],['255,150,60','Orange'],
   ['196,92,203','Magenta'],['240,85,107','Coral'],['151,166,200','Steel'],
 ];
-function ZoneEditor({ zone, onApply, onCancel, onDelete, unplaced=[] }){
+function ZoneEditor({ zone, embeds=[], onApply, onCancel, onDelete, unplaced=[] }){
+  // how many embeds / distinct types fall inside the drawn region (best-effort; needs geometry)
+  const region = React.useMemo(()=>{
+    try{ const pts = zonePts(zone); if(!pts || pts.length<3) return null;
+      const inside = embeds.filter(e=> pointInPoly(e.nx, e.ny, pts));
+      const ds = window.deliveryState || (e=>e.installed?'delivered':(e.delivery||'none'));
+      return { count:inside.length, types:new Set(inside.map(e=>e.mark).filter(Boolean)).size,
+        installed:inside.filter(e=>e.installed).length,
+        delivered:inside.filter(e=>ds(e)==='delivered').length }; }
+    catch(_){ return null; }
+  }, [zone, embeds]);
   const [area, setArea] = React.useState(zone.area || 'A');
   const [pour, setPour] = React.useState(zone.pour || '1');
   const [phase, setPhase] = React.useState(zone.phase || '1');
@@ -220,7 +250,19 @@ function ZoneEditor({ zone, onApply, onCancel, onDelete, unplaced=[] }){
           <Icon name="zone" size={18} style={{ color:T.color.amber }} />
           <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:20, textTransform:'uppercase', letterSpacing:'.03em' }}>{zone._new?'Tag zone':'Edit zone'}</span>
         </div>
-        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 18px' }}>{target?'Drop this box onto an existing pour to give it a location.':'Tag every embed inside this zone. Area & sequence stay as-is unless you choose to reassign them.'}</p>
+        <p style={{ fontSize:13, color:T.color.steel300, margin:'0 0 14px' }}>{target?'Drop this box onto an existing pour to give it a location.':'Tag every embed inside this zone. Area & sequence stay as-is unless you choose to reassign them.'}</p>
+        {region && (
+          <div style={{ display:'flex', alignItems:'center', gap:16, margin:'0 0 16px', padding:'11px 14px', borderRadius:T.radius.lg,
+            background:'rgba(126,120,240,.08)', border:'1px solid rgba(126,120,240,.3)' }}>
+            <Icon name="target" size={16} style={{ color:T.color.amberHot, flex:'0 0 auto' }} />
+            {[['Embeds',region.count,'#fff'],['Types',region.types,T.color.amberHot],['Delivered',region.delivered,T.color.green],['Installed',region.installed,T.color.green]].map(([l,v,c])=>(
+              <div key={l}>
+                <div style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>{l}</div>
+                <div style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:17, color:c, marginTop:1 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           {canAttach && (
             <Field label="Pour">

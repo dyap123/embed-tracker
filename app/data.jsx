@@ -139,6 +139,14 @@ function pinState(e){
   if (e.nextPour) return 'next';                  // cyan — tagged as next pour (via a zone)
   return 'todo';                                  // knife plate is an attribute (e.hasKnife), not a status
 }
+// delivery-to-site state: installed steel is by definition on site, so it always reads 'delivered'.
+// Otherwise the pin's own delivery field drives it ('delivered' | 'transit' | 'none').
+function deliveryState(e){
+  if (e.installed) return 'delivered';
+  if (e.delivery==='delivered') return 'delivered';
+  if (e.delivery==='transit')   return 'transit';
+  return 'none';
+}
 function kpis(embeds){
   const pinned = embeds.length;
   const installed = embeds.filter(e=>e.installed).length;
@@ -175,6 +183,7 @@ function pinToEmbed(key, p){
     grid: `${C[ci]}-${R[ri]}`, nx, ny,
     sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
     installed: !!p.installed, hasKnife: knife, hasStub: stub, stubType: p.stubType || '', nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
+    delivery: p.delivery || 'none',                           // delivery-to-site status (see deliveryState)
   };
 }
 
@@ -195,6 +204,7 @@ const REMARKS = {
   install:  ['Steel set. 🔩', 'Locked in — clean work.', "That one's in the concrete for good.", 'Bolt down, boss.', 'Another one buried — keep stacking.', 'Set & forget. Nice.'],
   uninstall:['Backed it out — sort it and re-set.'],
   rfi:      ['RFI flagged — good catch.', 'Question logged. Saves a callback.', 'Sharp eye — RFI on the board.'],
+  delivery: ['Delivery logged. 🚚', 'Steel tracked to site.', 'Updated the delivery board.', 'Material status set.'],
   zone:     ["Zone tagged — crew's aligned.", 'Bulk move. Efficient.'],
   seqdone:  ['Pour wrapped — green across the board! 🟢', 'Sequence complete. On to the next.'],
   edit:     ['Updated.', 'Logged.', 'Got it.'],
@@ -230,6 +240,17 @@ function seqSummary(embeds){
 }
 window.seqSummary = seqSummary;
 
+/* ---- delivery summary by sequence (placed / delivered / in-transit / not-delivered / %) ---- */
+function deliverySummary(embeds){
+  const rows = SEQUENCES.map(s=>{ const list=embeds.filter(e=>e.sequence===s); const placed=list.length;
+    const delivered=list.filter(e=>deliveryState(e)==='delivered').length;
+    const transit=list.filter(e=>deliveryState(e)==='transit').length;
+    return { seq:s, placed, delivered, transit, none:placed-delivered-transit, pct: placed?Math.round(delivered/placed*100):0 }; });
+  const t = rows.reduce((a,r)=>({ placed:a.placed+r.placed, delivered:a.delivered+r.delivered, transit:a.transit+r.transit }), { placed:0, delivered:0, transit:0 });
+  return { rows, total:{ ...t, none:t.placed-t.delivered-t.transit, pct: t.placed?Math.round(t.delivered/t.placed*100):0 } };
+}
+window.deliverySummary = deliverySummary;
+
 // installed-over-time series (cumulative) for the dashboard chart
 function installSeries(embeds){
   const counts = {};
@@ -247,6 +268,6 @@ POURS.forEach(p=>{ p.embeds = EMBEDS.filter(e=>e.area===p.area && e.sequence===p
 
 Object.assign(window, {
   EMBEDS, CREW, INVENTORY, EMBED_TYPES, SEQUENCES, PHASES, AREAS, GRID_COLS, GRID_ROWS, PLAN, POURS,
-  pinState, kpis, installSeries, colX, rowY,
+  pinState, deliveryState, kpis, installSeries, colX, rowY,
   setGridCfg, gridCols, gridRows, gridPlan, cumFrac,
 });

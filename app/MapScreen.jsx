@@ -43,7 +43,7 @@ function setGridLine(cfg, axis, i, nf){
   return { ...cfg, [wkey]:w };
 }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, grid, savedGrid, gridDraft, onGridDraft, onSaveGrid, pourMode }){
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, onBulkDelivery, grid, savedGrid, gridDraft, onGridDraft, onSaveGrid, pourMode }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const canvasRef = React.useRef(null);   // pin layer (replaces ~340 DOM pin nodes)
@@ -55,6 +55,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [filter, setFilter] = React.useState('all');      // status filter
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [stub, setStub] = React.useState('all');          // stub-column filter
+  const [colorMode, setColorMode] = React.useState('install');   // 'install' | 'delivery' — what the dot color shows
   const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
@@ -162,8 +163,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   function roundRectPath(ctx,x,y,w,h,r){ ctx.beginPath();
     ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
   function drawPin(ctx,e,x,y,on,picked){
-    const st=pinState(e);
-    const col=(e.hasStub && st!=='installed') ? '#FF9650' : STATE[st].color;
+    let col;
+    if (colorMode==='delivery'){ col = DELIVERY[deliveryState(e)].color; }   // delivery layer: green/yellow/red by on-site status
+    else { const st=pinState(e); col=(e.hasStub && st!=='installed') ? '#FF9650' : STATE[st].color; }
     const r=on?8:6;
     ctx.beginPath(); ctx.arc(x,y, r+(picked?3:(on?3:1.5)), 0, 6.2832);   // glow / selection ring
     ctx.fillStyle = picked ? '#ffffff' : (col+'55'); ctx.fill();
@@ -352,6 +354,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql) || (e.hasStub && String(e.stubType||'').toLowerCase().includes(ql))) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e)===k).length; return m; },{});
+  const deliveryCounts = DELIVERY_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>deliveryState(e)===k).length; return m; },{});
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
   const stubCount = embeds.filter(e=>e.hasStub).length;
   const labelsOn = view.s > 2.2;
@@ -408,7 +411,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -567,11 +570,21 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         {/* multi-select action bar */}
         {selPins.length>0 && drawMode==='off' && (
-          <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:8,
-            background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.cyan, borderRadius:T.radius.pill, padding:'6px 8px 6px 14px', boxShadow:T.shadow.card }}>
-            <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5 }}>{selPins.length} selected</span>
+          <div data-ui style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:13, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', justifyContent:'center', maxWidth:'calc(100vw - 28px)',
+            background:steelPlate('#161D29','#0F141C'), border:'1px solid '+T.color.cyan, borderRadius:T.radius.lg, padding:'7px 10px', boxShadow:T.shadow.card }}>
+            <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:13.5, padding:'0 4px' }}>{selPins.length} selected</span>
             <Btn size="sm" kind="primary" icon="check" onClick={()=>onBulkInstall(selPins, true)}>Mark done</Btn>
             <Btn size="sm" kind="ghost" icon="close" onClick={()=>onBulkInstall(selPins, false)}>Un-install</Btn>
+            <div style={{ width:1, height:20, background:T.color.line }} />
+            {/* bulk delivery — set the delivery-to-site status of every selected pin */}
+            {[['delivered','Delivered','47,214,166'],['transit','On the way','245,194,75'],['none','Not delivered','240,85,107']].map(([st,label,rgb])=>(
+              <button key={st} onClick={()=>onBulkDelivery && onBulkDelivery(selPins, st)} title={'Mark '+selPins.length+' as '+label.toLowerCase()}
+                style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 11px', borderRadius:T.radius.pill,
+                  background:`rgba(${rgb},.16)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.03em', whiteSpace:'nowrap' }}>
+                <span style={{ width:8, height:8, borderRadius:'50%', background:`rgb(${rgb})`, boxShadow:`0 0 6px -1px rgb(${rgb})` }} />{label}
+              </button>
+            ))}
+            <div style={{ width:1, height:20, background:T.color.line }} />
             <Btn size="sm" kind="ghost" icon="layers" onClick={()=>copyEmbeds()}>Copy</Btn>
             {manager && <Btn size="sm" kind="danger" icon="trash" onClick={()=>requestDeletePins(selPins)}>Delete</Btn>}
             <Btn size="sm" kind="ghost" icon="close" onClick={()=>setSelPins([])}>Clear</Btn>
@@ -589,7 +602,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </div>
         )}
 
-        {showLegend && <Legend counts={counts} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} onClose={()=>setShowLegend(false)} />}
+        {showLegend && <Legend counts={counts} deliveryCounts={deliveryCounts} colorMode={colorMode} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} onClose={()=>setShowLegend(false)} />}
         {!showLegend && <Btn size="sm" kind="solid" icon="layers" onClick={()=>setShowLegend(true)} style={{ position:'absolute', left:14, bottom:14 }}>Legend</Btn>}
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
@@ -599,7 +612,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         {sel && <PinDetail key={sel.id} embed={sel} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
           manager={manager} onDelete={manager?()=>{ requestDeletePins([sel.id]); setSelId(null); }:null} />}
-        {editZone && <ZoneEditor zone={editZone} onCancel={()=>setEditZone(null)} onApply={commitZone}
+        {editZone && <ZoneEditor zone={editZone} embeds={embeds} onCancel={()=>setEditZone(null)} onApply={commitZone}
           unplaced={zones.filter(z=>zoneLayer(z)==='WCG Pours' && !hasGeom(z))}
           onDelete={editZone._new?null:()=>{ deleteZone(editZone.id); setEditZone(null); }} />}
         {gridMode && manager && gridDraft && <GridEditor cfg={gridDraft} onChange={onGridDraft}
@@ -634,7 +647,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   const [fOpen,setFOpen] = React.useState(false);
   const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
@@ -668,6 +681,11 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,draw
             <div><Kicker>Stub column</Kicker><div style={{ marginTop:5 }}><Segmented size="sm" value={stub} onChange={setStub} options={[{value:'all',label:'All'},{value:'sc',label:'Has SC'},{value:'nosc',label:'No SC'}]} /></div></div>
           </div>
         )}
+      </div>
+      {/* color the dots by install status or by delivery-to-site status */}
+      <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 4px 0 9px', height:30 }} title="What the pin colors show">
+        <Icon name="layers" size={13} style={{ color:colorMode==='delivery'?'#FF9650':T.color.steel400 }} />
+        <Segmented size="sm" value={colorMode} onChange={setColorMode} options={[{value:'install',label:'Install'},{value:'delivery',label:'Delivery'}]} />
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 10px', height:30 }}>
         <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
@@ -716,22 +734,31 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,tool,setTool,draw
 const zbtn = { width:30, height:28, display:'grid', placeItems:'center', borderRadius:6, color:T.color.steel200 };
 
 /* ---- legend ---- */
-function Legend({ counts, total, knifeCount, stubCount, onClose }){
+function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCount, stubCount, onClose }){
+  const delivery = colorMode==='delivery';
   return (
     <div data-ui style={{ position:'absolute', left:14, bottom:14, background:steelPlate('#161D29','#0F141C'),
       border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:'12px 14px', boxShadow:T.shadow.card, minWidth:174 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:9 }}>
-        <Kicker>Legend</Kicker>
+        <Kicker>{delivery?'Delivery':'Legend'}</Kicker>
         <button onClick={onClose} style={{ color:T.color.steel400 }}><Icon name="close" size={13}/></button>
       </div>
       <div style={{ display:'grid', gap:7 }}>
-        {STATE_ORDER.map(k=>(
-          <div key={k} style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
-            <Dot color={STATE[k].color} size={11} />
-            <span style={{ color:T.color.offwhite, flex:1 }}>{STATE[k].label}</span>
-            <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{counts[k]}</span>
-          </div>
-        ))}
+        {delivery
+          ? DELIVERY_ORDER.map(k=>(
+              <div key={k} style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
+                <Dot color={DELIVERY[k].color} size={11} />
+                <span style={{ color:T.color.offwhite, flex:1 }}>{DELIVERY[k].label}</span>
+                <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{deliveryCounts[k]||0}</span>
+              </div>
+            ))
+          : STATE_ORDER.map(k=>(
+              <div key={k} style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
+                <Dot color={STATE[k].color} size={11} />
+                <span style={{ color:T.color.offwhite, flex:1 }}>{STATE[k].label}</span>
+                <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{counts[k]}</span>
+              </div>
+            ))}
         <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13, marginTop:1 }}>
           <span style={{ width:9, height:9, background:T.color.blue, transform:'rotate(45deg)', display:'inline-block', marginLeft:1 }} />
           <span style={{ color:T.color.offwhite, flex:1 }}>Knife plate</span>

@@ -73,10 +73,13 @@ function App(){
       else { p.installedAt = null; p.installedBy = null; }
       if (u&&u.id){ window.fb.inc('users/'+u.id+'/points', p.installed?10:-10); window.fb.inc('users/'+u.id+'/installs', p.installed?1:-1); }
     } else if ('rfi' in p){ kind = 'rfi'; }
+    else if ('delivery' in p){ kind = 'delivery'; }
     window.fb.update('pins/'+id, p);
     track(kind);
   }
   function bulkUpdate(ids, patch){ ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('zone'); }
+  // set delivery-to-site status on a group of pins (no points — logistics, not install credit)
+  function bulkSetDelivery(ids, status){ ids.forEach(id=> window.fb.update('pins/'+id, { delivery: status })); track('delivery'); }
   // mark a group installed / to-install (credits points for the net change, one toast)
   function bulkInstall(ids, val){ const u=userRef.current; let d=0;
     ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(!e || !!e.installed===!!val) return;
@@ -115,12 +118,12 @@ function App(){
 
   const mapProps = { embeds, updateEmbed, bulkUpdate, user, isPhone, zones,
     onAddZone:addZone, onUpdateZone:updateZone, onRemoveZone:removeZone, onRestoreZone:restoreZone,
-    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall,
+    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall, onBulkDelivery:bulkSetDelivery,
     grid:effGrid, savedGrid:grid, gridDraft, onGridDraft:setGridDraft, onSaveGrid:saveGrid };
   const screenEl = {
     map: <MapScreen {...mapProps} />,
     dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,
-    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager}
+    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager} onBulkDelivery={bulkSetDelivery}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}
                  onAddType={(id,patch)=>{ if(id) { window.fb.set('embeds/'+id, { id, ...(patch||{}) }); track('edit'); } }}
                  onDeleteType={(id)=>{ window.fb.remove('embeds/'+id); track('edit'); }}

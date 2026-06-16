@@ -43,6 +43,10 @@
   }
 
   // ---- shared derivations ----
+  function deliveryOf(e) {
+    const ds = window.deliveryState ? window.deliveryState(e) : e.installed ? 'delivered' : e.delivery || 'none';
+    return window.DELIVERY && window.DELIVERY[ds] ? window.DELIVERY[ds].label : ds;
+  }
   function embedRows(embeds) {
     return embeds.slice().sort((a, b) => String(a.mark).localeCompare(String(b.mark), undefined, {
       numeric: true
@@ -55,12 +59,36 @@
       Sequence: e.sequence || '',
       Phase: e.phase || '',
       Area: e.area || '',
+      Delivery: deliveryOf(e),
       Installed: e.installed ? 'Yes' : 'No',
       'Installed On': e.installedAt || '',
       'Installed By': e.installedBy || '',
       RFI: e.rfi ? e.rfi.number : '',
       'RFI Status': e.rfi ? e.rfi.status : ''
     }));
+  }
+  // delivery COUNT by sequence + delivered + on-the-way + not-delivered + %
+  function delivSummaryRows(embeds) {
+    const ds = window.deliverySummary ? window.deliverySummary(embeds) : null;
+    if (!ds) return null;
+    const SL = window.seqLabel || (s => 'Seq ' + s);
+    const rows = ds.rows.map(r => ({
+      Sequence: SL(r.seq),
+      Placed: r.placed,
+      Delivered: r.delivered,
+      'On the way': r.transit,
+      'Not delivered': r.none,
+      'Delivered %': r.pct + '%'
+    }));
+    rows.push({
+      Sequence: 'TOTAL',
+      Placed: ds.total.placed,
+      Delivered: ds.total.delivered,
+      'On the way': ds.total.transit,
+      'Not delivered': ds.total.none,
+      'Delivered %': ds.total.pct + '%'
+    });
+    return rows;
   }
   function byDate(embeds) {
     const m = {};
@@ -141,10 +169,11 @@
       dates = byDate(embeds),
       sum = summary(embeds),
       mtx = seqMatrix(embeds),
-      seqSum = seqSummaryRows(embeds);
+      seqSum = seqSummaryRows(embeds),
+      delivSum = delivSummaryRows(embeds);
     const fname = `EmbedYap_LACC_${stamp()}`;
     if (kind === 'csv') {
-      const parts = ['EmbedYap — LACC Embed Install Report,' + stamp(), '', 'OVERALL', csvOf(sum), '', 'INSTALL SUMMARY BY SEQUENCE', seqSum ? csvOf(seqSum) : '(none)', ''];
+      const parts = ['EmbedYap — LACC Embed Install Report,' + stamp(), '', 'OVERALL', csvOf(sum), '', 'INSTALL SUMMARY BY SEQUENCE', seqSum ? csvOf(seqSum) : '(none)', '', 'DELIVERY SUMMARY BY SEQUENCE', delivSum ? csvOf(delivSum) : '(none)', ''];
       if (mtx) {
         parts.push('EMBED COUNT BY MARK x SEQUENCE', csvAOA(mtx.head, [...mtx.body, mtx.totalRow]), '');
       }
@@ -160,6 +189,7 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sum), 'Summary');
       if (seqSum) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(seqSum), 'By Sequence');
+      if (delivSum) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(delivSum), 'Delivery by Sequence');
       if (mtx) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mtx.head, ...mtx.body, mtx.totalRow]), 'Mark x Sequence');
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Embeds');
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dates.length ? dates : [{
@@ -220,6 +250,38 @@
           left: 40
         },
         tableWidth: 360
+      });
+    }
+    // delivery summary by sequence — placed alongside the install summary
+    if (delivSum) {
+      const sx = 420;
+      doc.setFontSize(12);
+      doc.text('Delivery summary by sequence', sx, 102);
+      autoTable(doc, {
+        startY: 110,
+        head: [['Sequence', 'Placed', 'Delivered', 'On the way', 'Not deliv.', 'Delivered %']],
+        body: delivSum.map(r => [r.Sequence, r.Placed, r.Delivered, r['On the way'], r['Not delivered'], r['Delivered %']]),
+        styles: {
+          fontSize: 9.5,
+          cellPadding: 5
+        },
+        headStyles: {
+          fillColor: BRAND,
+          textColor: 255
+        },
+        alternateRowStyles: {
+          fillColor: [244, 246, 250]
+        },
+        didParseCell: d => {
+          if (d.row.index === delivSum.length - 1) {
+            d.cell.styles.fontStyle = 'bold';
+            d.cell.styles.fillColor = [226, 232, 243];
+          }
+        },
+        margin: {
+          left: sx
+        },
+        tableWidth: 372
       });
     }
     if (mtx) {
@@ -325,6 +387,9 @@
         Description: r.desc || '',
         Qty: r.qty,
         Placed: r.pinned,
+        Delivered: r.delivered != null ? r.delivered : '',
+        'On the way': r.transit != null ? r.transit : '',
+        'Not delivered': r.notDelivered != null ? r.notDelivered : '',
         Installed: r.inst,
         Remaining: r.remaining,
         'Complete %': r.pct + '%',
