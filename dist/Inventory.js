@@ -1197,10 +1197,11 @@ function SummaryGrid({
     }
   }, "No embeds in scope."));
   const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px'; // mark | delivered/total | installed | per-mark actions
+  // auto-fit: few groups stretch to fill the width (more room to check off); many settle at ~340px and wrap
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: `repeat(${isPhone ? 1 : 3},1fr)`,
+      gridTemplateColumns: isPhone ? '1fr' : 'repeat(auto-fit, minmax(340px, 1fr))',
       gap: 12,
       marginTop: 18,
       alignItems: 'start'

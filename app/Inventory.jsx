@@ -349,8 +349,9 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
   const [openKey, setOpenKey] = React.useState(null);
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
   const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px';   // mark | delivered/total | installed | per-mark actions
+  // auto-fit: few groups stretch to fill the width (more room to check off); many settle at ~340px and wrap
   return (
-    <div style={{ display:'grid', gridTemplateColumns:`repeat(${isPhone?1:3},1fr)`, gap:12, marginTop:18, alignItems:'start' }}>
+    <div style={{ display:'grid', gridTemplateColumns:isPhone?'1fr':'repeat(auto-fit, minmax(340px, 1fr))', gap:12, marginTop:18, alignItems:'start' }}>
       {groups.map(g=>{
         const dpct = g.embeds?Math.round(g.delivered/g.embeds*100):0;
         const ipct = g.embeds?Math.round(g.installed/g.embeds*100):0;
