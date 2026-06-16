@@ -82,8 +82,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
       : groupBy==='delivery' ? dState(e) : (e.hasKnife?'knife':e.hasStub?'stub':'plain');   // 'attr'
     visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), ids:[], embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
       b.embeds++; b.marks.add(e.mark); b.ids.push(e.id); const dl=dState(e); if(dl==='delivered') b.delivered++; else if(dl==='transit') b.transit++; if(e.installed) b.installed++;
-      const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, embeds:0, delivered:0, transit:0, installed:0 });
-      mm.embeds++; if(dl==='delivered') mm.delivered++; else if(dl==='transit') mm.transit++; if(e.installed) mm.installed++; });
+      const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, ids:[], embeds:0, delivered:0, transit:0, installed:0 });
+      mm.embeds++; mm.ids.push(e.id); if(dl==='delivered') mm.delivered++; else if(dl==='transit') mm.transit++; if(e.installed) mm.installed++; });
     const order = groupBy==='sequence' ? SEQS : groupBy==='area' ? (window.AREAS||['A','B','C','D'])
       : groupBy==='delivery' ? (window.DELIVERY_ORDER||['delivered','transit','none']) : ['plain','knife','stub'];
     const label = (k)=> groupBy==='sequence' ? seqLabel(k) : groupBy==='area' ? 'Area '+k
@@ -348,7 +348,7 @@ function StatTile({ label, value, sub, accent='#fff' }){
 function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
   const [openKey, setOpenKey] = React.useState(null);
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
-  const MARK_COLS = 'minmax(0,1fr) 44px 60px 44px';
+  const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px';   // mark | delivered/total | installed | per-mark actions
   return (
     <div style={{ display:'grid', gridTemplateColumns:`repeat(${isPhone?1:3},1fr)`, gap:12, marginTop:18, alignItems:'start' }}>
       {groups.map(g=>{
@@ -391,15 +391,23 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
                       background:'rgba(79,163,242,.16)', border:'1px solid rgba(79,163,242,.5)', color:T.color.blue }}>Installed</button>
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400, paddingBottom:7 }}>
-                  <span>Mark · {g.types} types</span><span style={{ textAlign:'right' }}>Pins</span><span style={{ textAlign:'right' }}>Deliv</span><span style={{ textAlign:'right' }}>Inst</span>
+                  <span>Mark · {g.types} types</span><span style={{ textAlign:'right' }}>Deliv</span><span style={{ textAlign:'right' }}>Inst</span><span style={{ textAlign:'right' }}>Set</span>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:260, overflowY:'auto' }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:300, overflowY:'auto' }}>
                   {g.marksList.map(m=>(
                     <div key={m.mark} style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, alignItems:'center' }}>
                       <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:11.5, color:T.color.amberHot, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.mark}</span>
-                      <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:'#fff' }}>{m.embeds}</span>
-                      <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:T.color.green }}>{m.delivered}{m.transit?<span style={{ color:T.color.yellow }}> +{m.transit}</span>:null}</span>
+                      <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:T.color.green }}>{m.delivered}<span style={{ color:T.color.steel500 }}>/{m.embeds}</span>{m.transit?<span style={{ color:T.color.yellow }}> +{m.transit}</span>:null}</span>
                       <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:T.color.green }}>{m.installed}</span>
+                      <div style={{ display:'flex', gap:3, justifyContent:'flex-end' }}>
+                        {[['delivered','check','47,214,166','delivered'],['transit','clock','245,194,75','on the way'],['none','close','240,85,107','not delivered']].map(([st,ic,rgb,word])=>(
+                          <button key={st} title={`Mark ${m.mark} ${word}`} onClick={()=>m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st)}
+                            style={{ width:23, height:23, display:'grid', placeItems:'center', borderRadius:6,
+                              background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.45)`, color:`rgb(${rgb})` }}>
+                            <Icon name={ic} size={13} />
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>

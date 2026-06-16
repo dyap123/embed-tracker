@@ -208,12 +208,14 @@ function Inventory({
       const mk = e.mark || '—';
       const mm = b.byMark[mk] || (b.byMark[mk] = {
         mark: mk,
+        ids: [],
         embeds: 0,
         delivered: 0,
         transit: 0,
         installed: 0
       });
       mm.embeds++;
+      mm.ids.push(e.id);
       if (dl === 'delivered') mm.delivered++;else if (dl === 'transit') mm.transit++;
       if (e.installed) mm.installed++;
     });
@@ -1194,7 +1196,7 @@ function SummaryGrid({
       color: T.color.steel400
     }
   }, "No embeds in scope."));
-  const MARK_COLS = 'minmax(0,1fr) 44px 60px 44px';
+  const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px'; // mark | delivered/total | installed | per-mark actions
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
@@ -1376,20 +1378,20 @@ function SummaryGrid({
       style: {
         textAlign: 'right'
       }
-    }, "Pins"), /*#__PURE__*/React.createElement("span", {
-      style: {
-        textAlign: 'right'
-      }
     }, "Deliv"), /*#__PURE__*/React.createElement("span", {
       style: {
         textAlign: 'right'
       }
-    }, "Inst")), /*#__PURE__*/React.createElement("div", {
+    }, "Inst"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right'
+      }
+    }, "Set")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        maxHeight: 260,
+        maxHeight: 300,
         overflowY: 'auto'
       }
     }, g.marksList.map(m => /*#__PURE__*/React.createElement("div", {
@@ -1415,16 +1417,13 @@ function SummaryGrid({
         textAlign: 'right',
         fontFamily: T.font.mono,
         fontSize: 12,
-        color: '#fff'
-      }
-    }, m.embeds), /*#__PURE__*/React.createElement("span", {
-      style: {
-        textAlign: 'right',
-        fontFamily: T.font.mono,
-        fontSize: 12,
         color: T.color.green
       }
-    }, m.delivered, m.transit ? /*#__PURE__*/React.createElement("span", {
+    }, m.delivered, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.color.steel500
+      }
+    }, "/", m.embeds), m.transit ? /*#__PURE__*/React.createElement("span", {
       style: {
         color: T.color.yellow
       }
@@ -1435,7 +1434,30 @@ function SummaryGrid({
         fontSize: 12,
         color: T.color.green
       }
-    }, m.installed))))));
+    }, m.installed), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 3,
+        justifyContent: 'flex-end'
+      }
+    }, [['delivered', 'check', '47,214,166', 'delivered'], ['transit', 'clock', '245,194,75', 'on the way'], ['none', 'close', '240,85,107', 'not delivered']].map(([st, ic, rgb, word]) => /*#__PURE__*/React.createElement("button", {
+      key: st,
+      title: `Mark ${m.mark} ${word}`,
+      onClick: () => m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st),
+      style: {
+        width: 23,
+        height: 23,
+        display: 'grid',
+        placeItems: 'center',
+        borderRadius: 6,
+        background: `rgba(${rgb},.14)`,
+        border: `1px solid rgba(${rgb},.45)`,
+        color: `rgb(${rgb})`
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: ic,
+      size: 13
+    })))))))));
   }));
 }
 function SumStat({
