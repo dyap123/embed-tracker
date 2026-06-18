@@ -147,6 +147,8 @@ function deliveryState(e){
   if (e.delivery==='transit')   return 'transit';
   return 'none';
 }
+// date an embed was received on site — its explicit delivered date, or (for already-installed pins) the install date
+function receivedAt(e){ return e.deliveredAt || (e.installed ? e.installedAt : null); }
 function kpis(embeds){
   const pinned = embeds.length;
   const installed = embeds.filter(e=>e.installed).length;
@@ -174,6 +176,7 @@ function pinToEmbed(key, p){
   const tp = EMBED_TYPES[0];                                 // every pin is an anchor bolt
   const seq = p.sequence || '1', phase = p.phase || '1', area = p.area || areaFor(ci, ri);
   const at = p.installedAt ? (typeof p.installedAt==='number' ? new Date(p.installedAt).toISOString().slice(0,10) : p.installedAt) : null;
+  const dat = p.deliveredAt ? (typeof p.deliveredAt==='number' ? new Date(p.deliveredAt).toISOString().slice(0,10) : p.deliveredAt) : null;
   // manually-placed pins (exact:true) land exactly where dropped; bulk-extracted pins snap to the grid
   const clamp01 = v => +Math.max(0,Math.min(1,v||0)).toFixed(4);
   const nx = p.exact ? clamp01(p.x) : +colX(ci).toFixed(4);
@@ -184,6 +187,7 @@ function pinToEmbed(key, p){
     sequence: seq, phase, area, pour: p.pour || `${area}·P${seq}`,
     installed: !!p.installed, hasKnife: knife, hasStub: stub, stubType: p.stubType || '', nextPour: !!p.nextPour, installedAt: at, installedBy: p.installedBy || null, rfi: p.rfi || null,
     delivery: p.delivery || 'none',                           // delivery-to-site status (see deliveryState)
+    deliveredAt: dat, deliveredBy: p.deliveredBy || null,     // when/who received it on site (set when marked delivered)
   };
 }
 
@@ -268,6 +272,6 @@ POURS.forEach(p=>{ p.embeds = EMBEDS.filter(e=>e.area===p.area && e.sequence===p
 
 Object.assign(window, {
   EMBEDS, CREW, INVENTORY, EMBED_TYPES, SEQUENCES, PHASES, AREAS, GRID_COLS, GRID_ROWS, PLAN, POURS,
-  pinState, deliveryState, kpis, installSeries, colX, rowY,
+  pinState, deliveryState, receivedAt, kpis, installSeries, colX, rowY,
   setGridCfg, gridCols, gridRows, gridPlan, cumFrac,
 });

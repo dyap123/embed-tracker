@@ -45,6 +45,7 @@ function App() {
   const [crew, setCrew] = React.useState([]); // Firebase users
   const [zones, setZones] = React.useState([]); // Firebase zones
   const [grid, setGrid] = React.useState(null); // Firebase editable grid config
+  const [seqMeta, setSeqMeta] = React.useState({}); // Firebase per-sequence metadata ({ needed: 'YYYY-MM-DD' })
   const [toast, setToast] = React.useState(null);
   const [railOpen, setRailOpen] = React.useState(true);
   const [profileOpen, setProfileOpen] = React.useState(false);
@@ -63,6 +64,7 @@ function App() {
       setGridCfg(v);
       setGrid(v || null);
     });
+    window.fb.listen('seqMeta', v => setSeqMeta(v || {}));
     window.fb.listen('users', v => {
       const arr = Object.values(v || {}).filter(Boolean);
       setCrew(arr.length ? arr : CREW);
@@ -140,7 +142,15 @@ function App() {
       kind = 'rfi';
     } else if ('delivery' in p) {
       kind = 'delivery';
-    }
+      const u = userRef.current;
+      if (p.delivery === 'delivered') {
+        if (!p.deliveredAt) p.deliveredAt = today();
+        p.deliveredBy = u ? u.name : null;
+      } else {
+        p.deliveredAt = null;
+        p.deliveredBy = null;
+      }
+    } // on the way / not delivered clears the received stamp
     window.fb.update('pins/' + id, p);
     track(kind);
   }
@@ -148,11 +158,20 @@ function App() {
     ids.forEach(id => window.fb.update('pins/' + id, patch));
     track('zone');
   }
-  // set delivery-to-site status on a group of pins (no points — logistics, not install credit)
-  function bulkSetDelivery(ids, status) {
-    ids.forEach(id => window.fb.update('pins/' + id, {
-      delivery: status
-    }));
+  // set delivery-to-site status on a group of pins (no points — logistics, not install credit).
+  // `date` (optional) stamps the received date when marking delivered; otherwise today.
+  function bulkSetDelivery(ids, status, date) {
+    const u = userRef.current;
+    const patch = status === 'delivered' ? {
+      delivery: 'delivered',
+      deliveredAt: date || today(),
+      deliveredBy: u ? u.name : null
+    } : {
+      delivery: status,
+      deliveredAt: null,
+      deliveredBy: null
+    };
+    ids.forEach(id => window.fb.update('pins/' + id, patch));
     track('delivery');
   }
   // mark a group installed / to-install (credits points for the net change, one toast)
@@ -220,6 +239,15 @@ function App() {
       y: +(+m.y).toFixed(4),
       exact: true
     }));
+    track('edit');
+  }
+
+  // ---- per-sequence metadata (manual "needed by" deadline) ----
+  function setSeqNeeded(seq, date) {
+    if (!seq) return;
+    window.fb.update('seqMeta/' + seq, {
+      needed: date || null
+    });
     track('edit');
   }
 
@@ -329,6 +357,8 @@ function App() {
       canEdit: !!user.manager,
       onBulkDelivery: bulkSetDelivery,
       onBulkInstall: bulkInstall,
+      seqMeta: seqMeta,
+      onSetSeqNeeded: setSeqNeeded,
       onEditType: (mark, patch) => {
         window.fb.update('embeds/' + mark, patch);
         track('edit');

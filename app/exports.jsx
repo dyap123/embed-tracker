@@ -27,7 +27,7 @@
         Mark:e.mark||'', Type:e.typeLabel||(e.hasKnife?'Knife plate':'Anchor rod'),
         'Knife Plate':e.hasKnife?'Yes':'No', 'Stub Column':e.hasStub?'Yes':'No', Grid:e.grid||'',
         Sequence:e.sequence||'', Phase:e.phase||'', Area:e.area||'',
-        Delivery:deliveryOf(e),
+        Delivery:deliveryOf(e), Received:(window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', 'Received By':e.deliveredBy||'',
         Installed:e.installed?'Yes':'No', 'Installed On':e.installedAt||'', 'Installed By':e.installedBy||'',
         RFI:e.rfi?e.rfi.number:'', 'RFI Status':e.rfi?e.rfi.status:'',
       }));
@@ -156,7 +156,7 @@
     const SQ = seqs || [];
     const data=rows.map(r=>{ const sc={}; SQ.forEach(s=>{ const c=(r.seq&&r.seq[s])||{pinned:0,inst:0}; sc[(window.seqLabel?window.seqLabel(s):'Seq '+s)]=c.pinned; });
       return { Mark:r.id, Description:r.desc||'', Qty:r.qty, Placed:r.pinned,
-        Delivered:r.delivered!=null?r.delivered:'', 'On the way':r.transit!=null?r.transit:'', 'Not delivered':r.notDelivered!=null?r.notDelivered:'',
+        Delivered:r.delivered!=null?r.delivered:'', 'On the way':r.transit!=null?r.transit:'', 'Not delivered':r.notDelivered!=null?r.notDelivered:'', Received:r.received||'',
         Installed:r.inst, Remaining:r.remaining, 'Complete %':r.pct+'%',
         ...sc, '# Bolts':r.bolts!=null?r.bolts:'', Plate:r.plate||'', 'Length (in)':r.len!=null?r.len:'', Supplier:r.supplier||'' }; });
 

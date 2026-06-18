@@ -23,6 +23,7 @@ function App(){
   const [crew, setCrew] = React.useState([]);          // Firebase users
   const [zones, setZones] = React.useState([]);        // Firebase zones
   const [grid, setGrid] = React.useState(null);        // Firebase editable grid config
+  const [seqMeta, setSeqMeta] = React.useState({});    // Firebase per-sequence metadata ({ needed: 'YYYY-MM-DD' })
   const [toast, setToast] = React.useState(null);
   const [railOpen, setRailOpen] = React.useState(true);
   const [profileOpen, setProfileOpen] = React.useState(false);
@@ -34,6 +35,7 @@ function App(){
     window.fb.listen('embeds', v=> setMaster(v||{}));
     window.fb.listen('zones', v=> setZones(Object.entries(v||{}).map(([k,z])=>({...z,id:k}))));
     window.fb.listen('grid', v=>{ setGridCfg(v); setGrid(v||null); });
+    window.fb.listen('seqMeta', v=> setSeqMeta(v||{}));
     window.fb.listen('users', v=>{
       const arr = Object.values(v||{}).filter(Boolean);
       setCrew(arr.length?arr:CREW);
@@ -73,13 +75,19 @@ function App(){
       else { p.installedAt = null; p.installedBy = null; }
       if (u&&u.id){ window.fb.inc('users/'+u.id+'/points', p.installed?10:-10); window.fb.inc('users/'+u.id+'/installs', p.installed?1:-1); }
     } else if ('rfi' in p){ kind = 'rfi'; }
-    else if ('delivery' in p){ kind = 'delivery'; }
+    else if ('delivery' in p){ kind = 'delivery'; const u=userRef.current;
+      if (p.delivery==='delivered'){ if(!p.deliveredAt) p.deliveredAt = today(); p.deliveredBy = u? u.name : null; }
+      else { p.deliveredAt = null; p.deliveredBy = null; } }   // on the way / not delivered clears the received stamp
     window.fb.update('pins/'+id, p);
     track(kind);
   }
   function bulkUpdate(ids, patch){ ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('zone'); }
-  // set delivery-to-site status on a group of pins (no points — logistics, not install credit)
-  function bulkSetDelivery(ids, status){ ids.forEach(id=> window.fb.update('pins/'+id, { delivery: status })); track('delivery'); }
+  // set delivery-to-site status on a group of pins (no points — logistics, not install credit).
+  // `date` (optional) stamps the received date when marking delivered; otherwise today.
+  function bulkSetDelivery(ids, status, date){ const u=userRef.current;
+    const patch = status==='delivered' ? { delivery:'delivered', deliveredAt: date||today(), deliveredBy: u?u.name:null }
+                                       : { delivery:status, deliveredAt:null, deliveredBy:null };
+    ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('delivery'); }
   // mark a group installed / to-install (credits points for the net change, one toast)
   function bulkInstall(ids, val){ const u=userRef.current; let d=0;
     ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(!e || !!e.installed===!!val) return;
@@ -97,6 +105,9 @@ function App(){
     window.fb.remove('pins/'+id); track('edit'); }
   function restorePin(id, data){ window.fb.set('pins/'+id, { ...data, createdAt:Date.now() }); }   // undo of delete
   function movePins(moves){ moves.forEach(m=> window.fb.update('pins/'+m.id, { x:+(+m.x).toFixed(4), y:+(+m.y).toFixed(4), exact:true })); track('edit'); }
+
+  // ---- per-sequence metadata (manual "needed by" deadline) ----
+  function setSeqNeeded(seq, date){ if(!seq) return; window.fb.update('seqMeta/'+seq, { needed: date||null }); track('edit'); }
 
   // ---- zones (Firebase-backed; pour-sequence highlight + mark-complete) ----
   function addZone(z){ const key='Z'+Math.random().toString(36).slice(2,9); window.fb.set('zones/'+key, {...z, createdAt:Date.now()}); return key; }
@@ -123,7 +134,7 @@ function App(){
   const screenEl = {
     map: <MapScreen {...mapProps} />,
     dashboard: <Dashboard embeds={embeds} zones={zones} isPhone={isPhone} />,
-    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager} onBulkDelivery={bulkSetDelivery} onBulkInstall={bulkInstall}
+    inventory: <Inventory embeds={embeds} isPhone={isPhone} types={master} canEdit={!!user.manager} onBulkDelivery={bulkSetDelivery} onBulkInstall={bulkInstall} seqMeta={seqMeta} onSetSeqNeeded={setSeqNeeded}
                  onEditType={(mark,patch)=>{ window.fb.update('embeds/'+mark, patch); track('edit'); }}
                  onAddType={(id,patch)=>{ if(id) { window.fb.set('embeds/'+id, { id, ...(patch||{}) }); track('edit'); } }}
                  onDeleteType={(id)=>{ window.fb.remove('embeds/'+id); track('edit'); }}

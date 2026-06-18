@@ -7,11 +7,21 @@ const DELIV_FILTERS = [   // delivery-status scope for the inventory page
   { value:'outstanding', label:'Outstanding' },     // anything not fully delivered
   { value:'delivered',   label:'Delivered' },
 ];
-function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit }){
+// urgency for a sequence "needed by" date — parses the ISO as a LOCAL date (like inspDaysUntil in MapScreen)
+function neededInfo(iso){
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||''); if(!m) return null;
+  const d=new Date(+m[1],+m[2]-1,+m[3]), n=new Date(); n.setHours(0,0,0,0); d.setHours(0,0,0,0);
+  const days=Math.round((d-n)/86400000);
+  const col = days<0 ? T.color.red : days<=7 ? T.color.yellow : T.color.steel300;
+  const lbl = days<0 ? `${-days}d overdue` : days===0 ? 'due today' : days===1 ? 'tomorrow' : `${days}d`;
+  return { days, col, lbl };
+}
+function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, seqMeta={}, onSetSeqNeeded }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
   const [seqFilter, setSeqFilter] = React.useState('all');   // scope counts + check-off to one sequence
   const [delivFilter, setDelivFilter] = React.useState('all');  // scope to a delivery status (incoming / awaiting / delivered)
+  const [sortBy, setSortBy] = React.useState('mark');        // 'mark' | 'recvDesc' | 'recvAsc'
   const [viewMode, setViewMode] = React.useState('table');   // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence');  // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
   const [adding, setAdding] = React.useState(false);
@@ -36,12 +46,20 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     transit: scoped.filter(e=>dState(e)==='transit').length,
     installed: scoped.filter(e=>e.installed).length };
 
+  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar)
+  const seqNeeded = seqFilter!=='all' ? ((seqMeta[seqFilter]||{}).needed||'') : '';
+  const seqNi = neededInfo(seqNeeded);
+  const sStat = (()=>{ if(seqFilter==='all') return null; let none=0,transit=0,deliv=0;
+    embeds.forEach(e=>{ if(e.sequence!==seqFilter) return; const d=dState(e); if(d==='delivered')deliv++; else if(d==='transit')transit++; else none++; });
+    return { none, transit, deliv }; })();
+
   // build a row per mark from the master (types) + live pins (counts respect the sequence filter)
   const byMark = {};
   Object.values(types||{}).forEach(t=>{ if(t&&t.id) byMark[t.id] = { ...t }; });
   scoped.forEach(e=>{ const m = byMark[e.mark] || (byMark[e.mark] = { id:e.mark, desc:e.typeLabel, seq:e.sequence });
     m._pinned = (m._pinned||0)+1; if(e.installed) m._inst = (m._inst||0)+1;
     const dl = dState(e); if(dl==='delivered') m._delv=(m._delv||0)+1; else if(dl==='transit') m._transit=(m._transit||0)+1;
+    const ra = window.receivedAt(e); if(ra && (!m._recvAt || ra>m._recvAt)){ m._recvAt=ra; m._recvBy=e.deliveredBy||m._recvBy; }   // latest receipt
     if(e.hasKnife) m.knifePlate = true; if(e.hasStub) m.stubColumn = true; });
   const ql = q.trim().toLowerCase();
   // tokenized search — every space-separated term must match somewhere (mark, desc, supplier, plate, notes, sequence)
@@ -50,10 +68,15 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     return terms.every(t=>hay.includes(t)); };
   const matchEmbed = (e)=>{ if(!terms.length) return true; const hay=[e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
     return terms.every(t=>hay.includes(t)); };
+  const byMarkSort = (a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true});
+  // received sort: not-yet-received rows always sink to the bottom; otherwise ISO dates compare chronologically
+  const byRecv = (dir)=> (a,b)=>{ const ra=a._recvAt, rb=b._recvAt; if(ra===rb) return byMarkSort(a,b);
+    if(!ra) return 1; if(!rb) return -1; return dir==='desc' ? (rb<ra?-1:1) : (ra<rb?-1:1); };
+  const sortFn = sortBy==='recvDesc' ? byRecv('desc') : sortBy==='recvAsc' ? byRecv('asc') : byMarkSort;
   const rows = Object.values(byMark)
     .filter(r=> !anyFilter || (r._pinned||0)>0)   // hide marks with nothing in the active filter scope
     .filter(matchRow)
-    .sort((a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true}));
+    .sort(sortFn);
   // with no scope filter the "design qty" baseline is the master total; otherwise it's the in-scope placed count
   const num = (r)=>({ qty: (!anyFilter && r.qty!=null)?r.qty:(r._pinned||0), pinned:r._pinned||0, inst:r._inst||0, delv:r._delv||0, transit:r._transit||0 });
   const tot = rows.reduce((a,r)=>{ const n=num(r); return { qty:a.qty+n.qty, pinned:a.pinned+n.pinned, inst:a.inst+n.inst, delv:a.delv+n.delv, transit:a.transit+n.transit }; }, {qty:0,pinned:0,inst:0,delv:0,transit:0});
@@ -69,7 +92,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
-      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit),
+      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:r._recvAt||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
       bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq }; });
     window.exportInventory(data, kind, SEQS); }
@@ -127,6 +150,16 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
             {q && <button onClick={()=>setQ('')} title="Clear" style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
           </div>
           <Segmented size="sm" value={viewMode} onChange={setViewMode} options={[{value:'table',label:'Table'},{value:'summary',label:'Summary'}]} />
+          <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(sortBy!=='mark'?'rgba(126,120,240,.5)':T.color.line),
+            borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Sort the inventory">
+            <Icon name="filter" size={13} style={{ color:sortBy!=='mark'?'#A6A0FF':T.color.steel400 }} />
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
+              style={{ background:'transparent', border:'none', outline:'none', color:sortBy!=='mark'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
+              <option value="mark">Sort: Mark</option>
+              <option value="recvDesc">Sort: Received (newest)</option>
+              <option value="recvAsc">Sort: Received (oldest)</option>
+            </select>
+          </div>
           {canEdit && <Btn kind="ghost" size="sm" icon="bolt" onClick={()=>onSyncQtys && onSyncQtys()} title="Set every type's quantity to its current placed count on the plan">Sync to map</Btn>}
           {canEdit && <Btn kind="ghost" size="sm" icon="plus" onClick={()=>setAdding(a=>!a)}>Add type</Btn>}
           <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('csv')}>CSV</Btn>
@@ -144,6 +177,27 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
               onClick={()=>{ if(newMark.trim()){ onAddType(newMark.trim(), { desc:newDesc.trim() }); setNewMark(''); setNewDesc(''); setAdding(false); } }}>Add</Btn>
             <Btn kind="ghost" size="sm" onClick={()=>{ setAdding(false); setNewMark(''); setNewDesc(''); }}>Cancel</Btn>
           </Card>
+        )}
+
+        {/* sequence "needed by" bar — deadline + what's still needed, when one sequence is selected */}
+        {seqFilter!=='all' && sStat && (
+          <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginTop:16, padding:'12px 16px', borderRadius:T.radius.lg,
+            background:'rgba(126,120,240,.07)', border:'1px solid '+(seqNi?seqNi.col+'66':T.color.line) }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+              <Icon name="calendar" size={16} style={{ color:T.color.amberHot }} />
+              <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16 }}>{seqLabel(seqFilter)}</span>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontFamily:T.font.mono, fontSize:10, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Needed by</span>
+              <div style={{ width:168 }}><DatePopover value={seqNeeded} disabled={!canEdit} onChange={d=>onSetSeqNeeded && onSetSeqNeeded(seqFilter, d)} /></div>
+              {seqNi && <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:12, color:seqNi.col }}>{seqNi.lbl}</span>}
+            </div>
+            <div style={{ marginLeft:'auto', display:'flex', gap:14, fontFamily:T.font.mono, fontSize:12, flexWrap:'wrap' }}>
+              <span style={{ color:T.color.red }}><b>{sStat.none}</b> not delivered</span>
+              <span style={{ color:T.color.yellow }}><b>{sStat.transit}</b> on the way</span>
+              <span style={{ color:T.color.green }}><b>{sStat.deliv}</b> delivered</span>
+            </div>
+          </div>
         )}
 
         {/* headline stats — reflects the sequence filter ("selected region") */}
@@ -165,7 +219,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
         )}
 
         {viewMode==='summary' ? (
-          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} />
+          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} seqMeta={seqMeta} groupBy={groupBy} />
         ) : (
         <Card pad={0} glow style={{ marginTop:18 }}>
           {!isPhone && (
@@ -189,7 +243,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{r._recvAt?<span style={{ color:T.color.green }}> · Rec’d {window.shortDate(r._recvAt)}</span>:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
@@ -208,7 +262,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
                 {isOpen && <>
-                  <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} />
+                  <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} recvAt={r._recvAt} recvBy={r._recvBy} />
                   <SeqBreakdown info={seqInfo[r.id]} deliv={delivInfo[r.id]} seqs={SEQS} />
                   <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} />
                 </>}
@@ -275,25 +329,31 @@ function DelivCell({ delv, transit, isPhone }){
 }
 
 /* bulk delivery check-off for a mark (scoped to the current sequence filter) — open to all signed-in users */
-function DeliveryControls({ n, ids, seqFilter, onBulkDelivery }){
+function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, recvAt, recvBy }){
   const notDel = Math.max(0, (n.qty||n.pinned||0) - n.delv - n.transit);
   const scope = seqFilter==='all' ? 'all sequences' : seqLabel(seqFilter);
-  const B = (status, label, rgb) => (
-    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status)} disabled={!ids.length}
+  const [recvDate, setRecvDate] = React.useState(()=> new Date().toISOString().slice(0,10));   // received date for "Delivered" (defaults today)
+  const B = (status, label, rgb, date) => (
+    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status, date)} disabled={!ids.length}
       style={{ flex:1, padding:'9px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em',
         background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
   );
   return (
     <div style={{ padding:'12px 20px 0' }}>
       <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Check off delivery · {ids.length} pins · {scope}</span>
+      {/* received date used when clicking Delivered — defaults today, set a past date to back-date */}
+      <div style={{ display:'flex', alignItems:'center', gap:9, marginTop:8 }}>
+        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel300, whiteSpace:'nowrap' }}>Received on</span>
+        <div style={{ width:170 }}><DatePopover value={recvDate} onChange={d=>setRecvDate(d)} /></div>
+      </div>
       <div style={{ display:'flex', gap:7, marginTop:8 }}>
-        {B('delivered','Delivered','47,214,166')}
+        {B('delivered','Delivered','47,214,166', recvDate||undefined)}
         {B('transit','On the way','245,194,75')}
         {B('none','Not delivered','240,85,107')}
       </div>
       <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:8 }}>
         Delivered <b style={{ color:T.color.green }}>{n.delv}</b> · On the way <b style={{ color:T.color.yellow }}>{n.transit}</b> · Not delivered <b style={{ color:T.color.red }}>{notDel}</b>
-        <span style={{ color:T.color.steel600 }}> · installed pins always count as delivered</span>
+        {recvAt && <span> · received <b style={{ color:T.color.green }}>{window.shortDate(recvAt)}</b>{recvBy?' by '+recvBy:''}</span>}
       </div>
     </div>
   );
@@ -345,7 +405,7 @@ function StatTile({ label, value, sub, accent='#fff' }){
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
-function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
+function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy }){
   const [openKey, setOpenKey] = React.useState(null);
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
   const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px';   // mark | delivered/total | installed | per-mark actions
@@ -356,6 +416,9 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
         const dpct = g.embeds?Math.round(g.delivered/g.embeds*100):0;
         const ipct = g.embeds?Math.round(g.installed/g.embeds*100):0;
         const isOpen = openKey===g.key;
+        const needed = groupBy==='sequence' ? ((seqMeta[g.key]||{}).needed||'') : '';   // per-sequence deadline
+        const ni = neededInfo(needed);
+        const outstanding = g.embeds - g.delivered;   // not yet on site (none + on the way)
         return (
           <Card key={g.key} pad={16} glow onClick={()=>setOpenKey(isOpen?null:g.key)}
             style={{ cursor:'pointer', border:'1px solid '+(isOpen?'rgba(126,120,240,.45)':T.color.line), transition:'border-color .15s' }}>
@@ -369,6 +432,14 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall }){
                 <Icon name="chevronDown" size={15} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s' }} />
               </div>
             </div>
+            {groupBy==='sequence' && (
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, fontFamily:T.font.mono, fontSize:11 }}>
+                <Icon name="calendar" size={12} style={{ color:ni?ni.col:T.color.steel400 }} />
+                {needed ? <span style={{ color:ni?ni.col:T.color.steel300 }}>Needed {window.shortDate(needed)}{ni?' · '+ni.lbl:''}</span>
+                        : <span style={{ color:T.color.steel500 }}>No deadline set</span>}
+                {outstanding>0 && <span style={{ marginLeft:'auto', color:T.color.red }}>{outstanding} not on site</span>}
+              </div>
+            )}
             <div style={{ display:'flex', gap:18, marginTop:13 }}>
               <SumStat label="Embeds" v={g.embeds} />
               <SumStat label="Types" v={g.types} color={T.color.amberHot} />

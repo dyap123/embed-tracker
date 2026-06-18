@@ -24,6 +24,23 @@ const DELIV_FILTERS = [
   value: 'delivered',
   label: 'Delivered'
 }];
+// urgency for a sequence "needed by" date — parses the ISO as a LOCAL date (like inspDaysUntil in MapScreen)
+function neededInfo(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3]),
+    n = new Date();
+  n.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  const days = Math.round((d - n) / 86400000);
+  const col = days < 0 ? T.color.red : days <= 7 ? T.color.yellow : T.color.steel300;
+  const lbl = days < 0 ? `${-days}d overdue` : days === 0 ? 'due today' : days === 1 ? 'tomorrow' : `${days}d`;
+  return {
+    days,
+    col,
+    lbl
+  };
+}
 function Inventory({
   embeds,
   isPhone,
@@ -34,12 +51,15 @@ function Inventory({
   onSyncQtys,
   onBulkDelivery,
   onBulkInstall,
-  canEdit
+  canEdit,
+  seqMeta = {},
+  onSetSeqNeeded
 }) {
   const [open, setOpen] = React.useState(null); // expanded mark
   const [q, setQ] = React.useState(''); // search
   const [seqFilter, setSeqFilter] = React.useState('all'); // scope counts + check-off to one sequence
   const [delivFilter, setDelivFilter] = React.useState('all'); // scope to a delivery status (incoming / awaiting / delivered)
+  const [sortBy, setSortBy] = React.useState('mark'); // 'mark' | 'recvDesc' | 'recvAsc'
   const [viewMode, setViewMode] = React.useState('table'); // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence'); // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
   const [adding, setAdding] = React.useState(false);
@@ -62,6 +82,26 @@ function Inventory({
     installed: scoped.filter(e => e.installed).length
   };
 
+  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar)
+  const seqNeeded = seqFilter !== 'all' ? (seqMeta[seqFilter] || {}).needed || '' : '';
+  const seqNi = neededInfo(seqNeeded);
+  const sStat = (() => {
+    if (seqFilter === 'all') return null;
+    let none = 0,
+      transit = 0,
+      deliv = 0;
+    embeds.forEach(e => {
+      if (e.sequence !== seqFilter) return;
+      const d = dState(e);
+      if (d === 'delivered') deliv++;else if (d === 'transit') transit++;else none++;
+    });
+    return {
+      none,
+      transit,
+      deliv
+    };
+  })();
+
   // build a row per mark from the master (types) + live pins (counts respect the sequence filter)
   const byMark = {};
   Object.values(types || {}).forEach(t => {
@@ -79,6 +119,11 @@ function Inventory({
     if (e.installed) m._inst = (m._inst || 0) + 1;
     const dl = dState(e);
     if (dl === 'delivered') m._delv = (m._delv || 0) + 1;else if (dl === 'transit') m._transit = (m._transit || 0) + 1;
+    const ra = window.receivedAt(e);
+    if (ra && (!m._recvAt || ra > m._recvAt)) {
+      m._recvAt = ra;
+      m._recvBy = e.deliveredBy || m._recvBy;
+    } // latest receipt
     if (e.hasKnife) m.knifePlate = true;
     if (e.hasStub) m.stubColumn = true;
   });
@@ -95,10 +140,21 @@ function Inventory({
     const hay = [e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
     return terms.every(t => hay.includes(t));
   };
-  const rows = Object.values(byMark).filter(r => !anyFilter || (r._pinned || 0) > 0) // hide marks with nothing in the active filter scope
-  .filter(matchRow).sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {
+  const byMarkSort = (a, b) => String(a.id).localeCompare(String(b.id), undefined, {
     numeric: true
-  }));
+  });
+  // received sort: not-yet-received rows always sink to the bottom; otherwise ISO dates compare chronologically
+  const byRecv = dir => (a, b) => {
+    const ra = a._recvAt,
+      rb = b._recvAt;
+    if (ra === rb) return byMarkSort(a, b);
+    if (!ra) return 1;
+    if (!rb) return -1;
+    return dir === 'desc' ? rb < ra ? -1 : 1 : ra < rb ? -1 : 1;
+  };
+  const sortFn = sortBy === 'recvDesc' ? byRecv('desc') : sortBy === 'recvAsc' ? byRecv('asc') : byMarkSort;
+  const rows = Object.values(byMark).filter(r => !anyFilter || (r._pinned || 0) > 0) // hide marks with nothing in the active filter scope
+  .filter(matchRow).sort(sortFn);
   // with no scope filter the "design qty" baseline is the master total; otherwise it's the in-scope placed count
   const num = r => ({
     qty: !anyFilter && r.qty != null ? r.qty : r._pinned || 0,
@@ -170,6 +226,7 @@ function Inventory({
         delivered: n.delv,
         transit: n.transit,
         notDelivered: Math.max(0, n.qty - n.delv - n.transit),
+        received: r._recvAt || '',
         remaining: Math.max(0, n.qty - n.inst),
         pct: n.qty ? Math.round(n.inst / n.qty * 100) : 0,
         bolts: r.bolts,
@@ -390,7 +447,44 @@ function Inventory({
       value: 'summary',
       label: 'Summary'
     }]
-  }), canEdit && /*#__PURE__*/React.createElement(Btn, {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 7,
+      background: 'rgba(0,0,0,.3)',
+      border: '1px solid ' + (sortBy !== 'mark' ? 'rgba(126,120,240,.5)' : T.color.line),
+      borderRadius: T.radius.md,
+      padding: '0 8px',
+      height: 32
+    },
+    title: "Sort the inventory"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "filter",
+    size: 13,
+    style: {
+      color: sortBy !== 'mark' ? '#A6A0FF' : T.color.steel400
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: sortBy,
+    onChange: e => setSortBy(e.target.value),
+    style: {
+      background: 'transparent',
+      border: 'none',
+      outline: 'none',
+      color: sortBy !== 'mark' ? '#fff' : T.color.steel200,
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      colorScheme: 'dark',
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "mark"
+  }, "Sort: Mark"), /*#__PURE__*/React.createElement("option", {
+    value: "recvDesc"
+  }, "Sort: Received (newest)"), /*#__PURE__*/React.createElement("option", {
+    value: "recvAsc"
+  }, "Sort: Received (oldest)"))), canEdit && /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
     icon: "bolt",
@@ -476,7 +570,87 @@ function Inventory({
       setNewMark('');
       setNewDesc('');
     }
-  }, "Cancel")), /*#__PURE__*/React.createElement("div", {
+  }, "Cancel")), seqFilter !== 'all' && sStat && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      flexWrap: 'wrap',
+      marginTop: 16,
+      padding: '12px 16px',
+      borderRadius: T.radius.lg,
+      background: 'rgba(126,120,240,.07)',
+      border: '1px solid ' + (seqNi ? seqNi.col + '66' : T.color.line)
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar",
+    size: 16,
+    style: {
+      color: T.color.amberHot
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 16
+    }
+  }, seqLabel(seqFilter))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 10,
+      letterSpacing: '.1em',
+      textTransform: 'uppercase',
+      color: T.color.steel400
+    }
+  }, "Needed by"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 168
+    }
+  }, /*#__PURE__*/React.createElement(DatePopover, {
+    value: seqNeeded,
+    disabled: !canEdit,
+    onChange: d => onSetSeqNeeded && onSetSeqNeeded(seqFilter, d)
+  })), seqNi && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontWeight: 700,
+      fontSize: 12,
+      color: seqNi.col
+    }
+  }, seqNi.lbl)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginLeft: 'auto',
+      display: 'flex',
+      gap: 14,
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.color.red
+    }
+  }, /*#__PURE__*/React.createElement("b", null, sStat.none), " not delivered"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.color.yellow
+    }
+  }, /*#__PURE__*/React.createElement("b", null, sStat.transit), " on the way"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.color.green
+    }
+  }, /*#__PURE__*/React.createElement("b", null, sStat.deliv), " delivered"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: `repeat(${isPhone ? 2 : 5},1fr)`,
@@ -544,7 +718,9 @@ function Inventory({
     groups: groups,
     isPhone: isPhone,
     onBulkDelivery: onBulkDelivery,
-    onBulkInstall: onBulkInstall
+    onBulkInstall: onBulkInstall,
+    seqMeta: seqMeta,
+    groupBy: groupBy
   }) : /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -659,7 +835,11 @@ function Inventory({
         fontSize: 10.5,
         color: T.color.steel400
       }
-    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : ''))), /*#__PURE__*/React.createElement(Num, {
+    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : '', r._recvAt ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.color.green
+      }
+    }, " \xB7 Rec\u2019d ", window.shortDate(r._recvAt)) : ''))), /*#__PURE__*/React.createElement(Num, {
       label: isPhone ? 'Qty' : null,
       v: n.qty
     }), !isPhone && /*#__PURE__*/React.createElement(Num, {
@@ -721,7 +901,9 @@ function Inventory({
       n: n,
       ids: markIds(r.id),
       seqFilter: seqFilter,
-      onBulkDelivery: onBulkDelivery
+      onBulkDelivery: onBulkDelivery,
+      recvAt: r._recvAt,
+      recvBy: r._recvBy
     }), /*#__PURE__*/React.createElement(SeqBreakdown, {
       info: seqInfo[r.id],
       deliv: delivInfo[r.id],
@@ -932,12 +1114,15 @@ function DeliveryControls({
   n,
   ids,
   seqFilter,
-  onBulkDelivery
+  onBulkDelivery,
+  recvAt,
+  recvBy
 }) {
   const notDel = Math.max(0, (n.qty || n.pinned || 0) - n.delv - n.transit);
   const scope = seqFilter === 'all' ? 'all sequences' : seqLabel(seqFilter);
-  const B = (status, label, rgb) => /*#__PURE__*/React.createElement("button", {
-    onClick: () => ids.length && onBulkDelivery && onBulkDelivery(ids, status),
+  const [recvDate, setRecvDate] = React.useState(() => new Date().toISOString().slice(0, 10)); // received date for "Delivered" (defaults today)
+  const B = (status, label, rgb, date) => /*#__PURE__*/React.createElement("button", {
+    onClick: () => ids.length && onBulkDelivery && onBulkDelivery(ids, status, date),
     disabled: !ids.length,
     style: {
       flex: 1,
@@ -969,10 +1154,31 @@ function DeliveryControls({
   }, "Check off delivery \xB7 ", ids.length, " pins \xB7 ", scope), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.steel300,
+      whiteSpace: 'nowrap'
+    }
+  }, "Received on"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 170
+    }
+  }, /*#__PURE__*/React.createElement(DatePopover, {
+    value: recvDate,
+    onChange: d => setRecvDate(d)
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
       gap: 7,
       marginTop: 8
     }
-  }, B('delivered', 'Delivered', '47,214,166'), B('transit', 'On the way', '245,194,75'), B('none', 'Not delivered', '240,85,107')), /*#__PURE__*/React.createElement("div", {
+  }, B('delivered', 'Delivered', '47,214,166', recvDate || undefined), B('transit', 'On the way', '245,194,75'), B('none', 'Not delivered', '240,85,107')), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 10.5,
@@ -991,11 +1197,11 @@ function DeliveryControls({
     style: {
       color: T.color.red
     }
-  }, notDel), /*#__PURE__*/React.createElement("span", {
+  }, notDel), recvAt && /*#__PURE__*/React.createElement("span", null, " \xB7 received ", /*#__PURE__*/React.createElement("b", {
     style: {
-      color: T.color.steel600
+      color: T.color.green
     }
-  }, " \xB7 installed pins always count as delivered")));
+  }, window.shortDate(recvAt)), recvBy ? ' by ' + recvBy : '')));
 }
 
 /* expandable per-type editor — input info for each embed mark */
@@ -1180,7 +1386,9 @@ function SummaryGrid({
   groups,
   isPhone,
   onBulkDelivery,
-  onBulkInstall
+  onBulkInstall,
+  seqMeta = {},
+  groupBy
 }) {
   const [openKey, setOpenKey] = React.useState(null);
   if (!groups.length) return /*#__PURE__*/React.createElement(Card, {
@@ -1210,6 +1418,9 @@ function SummaryGrid({
     const dpct = g.embeds ? Math.round(g.delivered / g.embeds * 100) : 0;
     const ipct = g.embeds ? Math.round(g.installed / g.embeds * 100) : 0;
     const isOpen = openKey === g.key;
+    const needed = groupBy === 'sequence' ? (seqMeta[g.key] || {}).needed || '' : ''; // per-sequence deadline
+    const ni = neededInfo(needed);
+    const outstanding = g.embeds - g.delivered; // not yet on site (none + on the way)
     return /*#__PURE__*/React.createElement(Card, {
       key: g.key,
       pad: 16,
@@ -1279,7 +1490,35 @@ function SummaryGrid({
         transform: isOpen ? 'rotate(180deg)' : 'none',
         transition: 'transform .2s'
       }
-    }))), /*#__PURE__*/React.createElement("div", {
+    }))), groupBy === 'sequence' && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 8,
+        fontFamily: T.font.mono,
+        fontSize: 11
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "calendar",
+      size: 12,
+      style: {
+        color: ni ? ni.col : T.color.steel400
+      }
+    }), needed ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: ni ? ni.col : T.color.steel300
+      }
+    }, "Needed ", window.shortDate(needed), ni ? ' · ' + ni.lbl : '') : /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.color.steel500
+      }
+    }, "No deadline set"), outstanding > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 'auto',
+        color: T.color.red
+      }
+    }, outstanding, " not on site")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
         gap: 18,
