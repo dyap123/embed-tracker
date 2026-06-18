@@ -355,6 +355,7 @@ function App() {
       isPhone: isPhone,
       types: master,
       canEdit: !!user.manager,
+      userName: user.name,
       onBulkDelivery: bulkSetDelivery,
       onBulkInstall: bulkInstall,
       seqMeta: seqMeta,

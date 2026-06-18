@@ -79,6 +79,7 @@ function Inventory({
   onBulkDelivery,
   onBulkInstall,
   canEdit,
+  userName,
   seqMeta = {},
   onSetSeqNeeded
 }) {
@@ -226,7 +227,7 @@ function Inventory({
   function markIds(id) {
     return scoped.filter(e => e.mark === id).map(e => e.id);
   }
-  // append a receipt to a mark's receiving log (used from the Summary drill-down)
+  // append a receipt to a mark's receiving log (used from the Summary drill-down + table); records who logged it
   function logReceipt(mark, qty, date) {
     const nq = Math.round(+qty);
     if (!mark || !nq || nq <= 0) return;
@@ -237,8 +238,20 @@ function Inventory({
       id: mark,
       receipts: [...cur, {
         qty: nq,
-        date: date || new Date().toISOString().slice(0, 10)
+        date: date || new Date().toISOString().slice(0, 10),
+        by: userName || null
       }]
+    });
+  }
+  // remove receipt #i from a mark's log (used from the Log view)
+  function removeReceipt(mark, i) {
+    const cur = recvList({
+      receipts: (types[mark] || {}).receipts
+    });
+    const next = cur.filter((_, k) => k !== i);
+    onEditType(mark, {
+      id: mark,
+      receipts: next.length ? next : null
     });
   }
   function expInv(kind) {
@@ -481,6 +494,9 @@ function Inventory({
     }, {
       value: 'summary',
       label: 'Summary'
+    }, {
+      value: 'log',
+      label: 'Log'
     }]
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -745,7 +761,12 @@ function Inventory({
       value: 'attr',
       label: 'Type'
     }]
-  })), viewMode === 'summary' ? /*#__PURE__*/React.createElement(SummaryGrid, {
+  })), viewMode === 'log' ? /*#__PURE__*/React.createElement(ReceiptsView, {
+    types: types,
+    ql: ql,
+    onRemove: removeReceipt,
+    isPhone: isPhone
+  }) : viewMode === 'summary' ? /*#__PURE__*/React.createElement(SummaryGrid, {
     groups: groups,
     isPhone: isPhone,
     onBulkDelivery: onBulkDelivery,
@@ -934,6 +955,7 @@ function Inventory({
       ids: markIds(r.id),
       seqFilter: seqFilter,
       onBulkDelivery: onBulkDelivery,
+      by: userName,
       receipts: r.receipts,
       onSetReceipts: arr => onEditType(r.id, {
         id: r.id,
@@ -1149,7 +1171,8 @@ function DelivCell({
 function ReceiptLog({
   qty,
   receipts,
-  onChange
+  onChange,
+  by
 }) {
   const list = recvList({
     receipts
@@ -1163,7 +1186,8 @@ function ReceiptLog({
     if (!nq || nq <= 0 || !onChange) return;
     onChange([...list, {
       qty: nq,
-      date: addDate || new Date().toISOString().slice(0, 10)
+      date: addDate || new Date().toISOString().slice(0, 10),
+      by: by || null
     }]);
     setAddQty('');
   }
@@ -1311,7 +1335,8 @@ function DeliveryControls({
   seqFilter,
   onBulkDelivery,
   receipts,
-  onSetReceipts
+  onSetReceipts,
+  by
 }) {
   const notDel = Math.max(0, (n.qty || n.pinned || 0) - n.delv - n.transit);
   const scope = seqFilter === 'all' ? 'all sequences' : seqLabel(seqFilter);
@@ -1340,7 +1365,8 @@ function DeliveryControls({
   }, /*#__PURE__*/React.createElement(ReceiptLog, {
     qty: n.qty,
     receipts: receipts,
-    onChange: onSetReceipts
+    onChange: onSetReceipts,
+    by: by
   }), /*#__PURE__*/React.createElement("span", {
     style: {
       display: 'block',
@@ -1558,6 +1584,215 @@ function StatTile({
       marginTop: 3
     }
   }, sub));
+}
+
+/* Log view — chronological inventory log of every receipt across all types (date · mark · qty · who logged it) */
+function ReceiptsView({
+  types,
+  ql,
+  onRemove,
+  isPhone
+}) {
+  const all = [];
+  Object.values(types || {}).forEach(t => {
+    if (!t || !t.id) return;
+    recvList(t).forEach((rc, i) => {
+      all.push({
+        mark: t.id,
+        desc: t.desc,
+        qty: +rc.qty || 0,
+        date: rc.date || '',
+        by: rc.by || '',
+        i
+      });
+    });
+  });
+  const terms = (ql || '').split(/\s+/).filter(Boolean);
+  const filtered = all.filter(e => !terms.length || terms.every(t => (e.mark + ' ' + (e.desc || '')).toLowerCase().includes(t)));
+  filtered.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.mark).localeCompare(String(b.mark), undefined, {
+    numeric: true
+  }));
+  const totalQty = filtered.reduce((s, e) => s + e.qty, 0);
+  const byDate = {};
+  filtered.forEach(e => {
+    (byDate[e.date] = byDate[e.date] || []).push(e);
+  });
+  const dates = Object.keys(byDate).sort((a, b) => String(b).localeCompare(String(a)));
+  if (!filtered.length) return /*#__PURE__*/React.createElement(Card, {
+    pad: 22,
+    glow: true,
+    style: {
+      marginTop: 18
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12.5,
+      color: T.color.steel400,
+      lineHeight: 1.6
+    }
+  }, "No deliveries logged yet. Log receipts from a type's row (", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: '#fff'
+    }
+  }, "Table"), " \u2192 expand a mark) or from the ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: '#fff'
+    }
+  }, "Summary"), " view."));
+  const COLS = isPhone ? '1fr 50px 26px' : '92px 1.4fr 70px 1.1fr 28px';
+  const badge = {
+    width: 42,
+    height: 28,
+    borderRadius: 7,
+    display: 'grid',
+    placeItems: 'center',
+    flex: '0 0 auto',
+    background: steelPlate('#26313F', '#1A2230'),
+    border: '1px solid ' + T.color.line,
+    fontFamily: T.font.mono,
+    fontWeight: 700,
+    fontSize: 12,
+    color: T.color.amberHot
+  };
+  return /*#__PURE__*/React.createElement(Card, {
+    pad: 0,
+    glow: true,
+    style: {
+      marginTop: 18
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: 10,
+      padding: '14px 20px',
+      borderBottom: '1px solid ' + T.color.line
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 16,
+      textTransform: 'uppercase',
+      letterSpacing: '.03em'
+    }
+  }, "Delivery log"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11.5,
+      color: T.color.steel400
+    }
+  }, filtered.length, " receipts \xB7 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: T.color.green
+    }
+  }, totalQty), " received")), !isPhone && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: COLS,
+      gap: 12,
+      padding: '10px 20px',
+      borderBottom: '1px solid ' + T.color.lineSoft,
+      fontFamily: T.font.mono,
+      fontSize: 9.5,
+      letterSpacing: '.12em',
+      textTransform: 'uppercase',
+      color: T.color.steel400
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "Date"), /*#__PURE__*/React.createElement("span", null, "Mark \xB7 type"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right'
+    }
+  }, "Qty"), /*#__PURE__*/React.createElement("span", null, "Logged by"), /*#__PURE__*/React.createElement("span", null)), dates.map(d => /*#__PURE__*/React.createElement("div", {
+    key: d
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '8px 20px',
+      background: 'rgba(30,58,107,.14)',
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.steel300
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 700,
+      color: '#fff'
+    }
+  }, window.shortDate(d) || 'No date'), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: T.color.green
+    }
+  }, byDate[d].reduce((s, e) => s + e.qty, 0)), " received")), byDate[d].map((e, k) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: 'grid',
+      gridTemplateColumns: COLS,
+      gap: 12,
+      padding: isPhone ? '11px 16px' : '11px 20px',
+      alignItems: 'center',
+      borderBottom: '1px solid ' + T.color.lineSoft
+    }
+  }, !isPhone && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11.5,
+      color: T.color.steel400
+    }
+  }, window.shortDate(e.date) || '—'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: badge
+  }, e.mark), !isPhone ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 600,
+      fontSize: 13.5,
+      color: T.color.steel200,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    }
+  }, e.desc || 'Anchor Bolt') : /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 10,
+      color: T.color.steel400
+    }
+  }, e.by || '—')), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right',
+      fontFamily: T.font.mono,
+      fontWeight: 700,
+      fontSize: 14,
+      color: T.color.green
+    }
+  }, "+", e.qty), !isPhone && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      color: e.by ? T.color.steel200 : T.color.steel600
+    }
+  }, e.by || '—'), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onRemove && onRemove(e.mark, e.i),
+    title: "Remove this receipt",
+    style: {
+      color: T.color.steel400,
+      justifySelf: 'end',
+      padding: 3
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "trash",
+    size: 14
+  })))))));
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
