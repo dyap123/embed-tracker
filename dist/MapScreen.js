@@ -166,6 +166,20 @@ function MapScreen({
   const [cat, setCat] = React.useState('all'); // knife-plate filter
   const [stub, setStub] = React.useState('all'); // stub-column filter
   const [colorMode, setColorMode] = React.useState('install'); // 'install' | 'delivery' — what the dot color shows
+  // anchor positions are LOCKED by default (per browser) so they can't be dragged accidentally; unlock to reposition
+  const [locked, setLocked] = React.useState(() => {
+    try {
+      const v = localStorage.getItem('embedyap_pinlock');
+      return v == null ? true : v !== '0';
+    } catch (_) {
+      return true;
+    }
+  });
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('embedyap_pinlock', locked ? '1' : '0');
+    } catch (_) {}
+  }, [locked]);
   const [tool, setTool] = React.useState('select'); // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null); // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null); // {x,y} cursor preview while placing
@@ -632,6 +646,7 @@ function MapScreen({
       return;
     } // new embed follows the cursor
     if (pdrag.current) {
+      if (locked) return; // positions locked — ignore the drag (pointer-up still selects the pin)
       const pd = pdrag.current;
       const dx = f.fx - pd.sf.fx,
         dy = f.fy - pd.sf.fy;
@@ -1268,6 +1283,8 @@ function MapScreen({
     setStub,
     colorMode,
     setColorMode,
+    locked,
+    setLocked,
     tool,
     setTool,
     drawMode,
@@ -2089,7 +2106,7 @@ function MapScreen({
       borderRadius: 6,
       border: '1px solid ' + T.color.line
     }
-  }, Math.round(view.s * 100), "% \xB7 ", visible.length, " pins", drawMode === 'pin' ? ' · CLICK TO PLACE' : drawMode === 'rect' ? ' · DRAG A BOX' : drawMode === 'poly' ? ' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT' : tool === 'select' ? ' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT' : ' · DRAG TO PAN'), sel && /*#__PURE__*/React.createElement(PinDetail, {
+  }, Math.round(view.s * 100), "% \xB7 ", visible.length, " pins", drawMode === 'pin' ? ' · CLICK TO PLACE' : drawMode === 'rect' ? ' · DRAG A BOX' : drawMode === 'poly' ? ' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT' : tool === 'select' ? locked ? ' · 🔒 PINS LOCKED · DRAG EMPTY TO SELECT' : ' · 🔓 DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT' : ' · DRAG TO PAN'), sel && /*#__PURE__*/React.createElement(PinDetail, {
     key: sel.id,
     embed: sel,
     isPhone: isPhone,
@@ -2236,6 +2253,8 @@ function MapToolbar({
   setStub,
   colorMode,
   setColorMode,
+  locked,
+  setLocked,
   tool,
   setTool,
   drawMode,
@@ -2317,7 +2336,28 @@ function MapToolbar({
       value: 'pan',
       label: 'Pan'
     }]
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLocked(v => !v),
+    title: locked ? 'Anchor positions locked — click to unlock for repositioning' : 'Positions UNLOCKED — a drag moves pins. Click to lock.',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      height: 30,
+      padding: '0 11px',
+      borderRadius: T.radius.md,
+      background: locked ? 'rgba(47,214,166,.16)' : 'rgba(245,166,35,.20)',
+      border: '1px solid ' + (locked ? 'rgba(47,214,166,.5)' : 'rgba(245,166,35,.65)'),
+      color: locked ? T.color.green : '#F5A623',
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 12,
+      letterSpacing: '.03em'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: locked ? 'lock' : 'unlock',
+    size: 14
+  }), locked ? 'Locked' : 'Unlocked'), /*#__PURE__*/React.createElement("div", {
     style: {
       position: 'relative'
     }

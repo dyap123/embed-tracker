@@ -56,6 +56,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [stub, setStub] = React.useState('all');          // stub-column filter
   const [colorMode, setColorMode] = React.useState('install');   // 'install' | 'delivery' — what the dot color shows
+  // anchor positions are LOCKED by default (per browser) so they can't be dragged accidentally; unlock to reposition
+  const [locked, setLocked] = React.useState(()=>{ try{ const v=localStorage.getItem('embedyap_pinlock'); return v==null ? true : v!=='0'; }catch(_){ return true; } });
+  React.useEffect(()=>{ try{ localStorage.setItem('embedyap_pinlock', locked?'1':'0'); }catch(_){} },[locked]);
   const [tool, setTool] = React.useState('select');       // 'select' (marquee) | 'move' | 'pan'
   const [dragPins, setDragPins] = React.useState(null);   // {id:{nx,ny}} live positions while moving placed pins
   const [ghost, setGhost] = React.useState(null);         // {x,y} cursor preview while placing
@@ -226,7 +229,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const {x,y}=relXY(e); const f=toFrac(x,y);
     if (gdrag.current){ const g=gdrag.current; onGridDraft(setGridLine(gridDraft, g.axis, g.i, g.axis==='col'?f.fx:f.fy)); return; }
     if (drawMode==='pin'){ setGhost({ x:f.fx, y:f.fy }); return; }    // new embed follows the cursor
-    if (pdrag.current){ const pd=pdrag.current; const dx=f.fx-pd.sf.fx, dy=f.fy-pd.sf.fy;
+    if (pdrag.current){ if(locked) return;   // positions locked — ignore the drag (pointer-up still selects the pin)
+      const pd=pdrag.current; const dx=f.fx-pd.sf.fx, dy=f.fy-pd.sf.fy;
       const dp={}; pd.ids.forEach(id=>{ const b=pd.base[id]; if(b) dp[id]={ nx:b.nx+dx, ny:b.ny+dy }; });
       pd.moved=true; pd.last=dp; setDragPins(dp); return; }
     if (vdrag.current){ setLiveZones(applyVertex(vdrag.current.id, vdrag.current.vi, f.fx, f.fy)); return; }
@@ -413,7 +417,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -610,7 +614,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
           background:'rgba(8,11,16,.6)', padding:'4px 9px', borderRadius:6, border:'1px solid '+T.color.line }}>
-          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT':(tool==='select'?' · DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT':' · DRAG TO PAN')}
+          {Math.round(view.s*100)}% · {visible.length} pins{drawMode==='pin'?' · CLICK TO PLACE':drawMode==='rect'?' · DRAG A BOX':drawMode==='poly'?' · CLICK POINTS · ENTER TO FINISH · ⌘Z REMOVES LAST PT':(tool==='select'?(locked?' · 🔒 PINS LOCKED · DRAG EMPTY TO SELECT':' · 🔓 DRAG A PIN TO MOVE · DRAG EMPTY TO SELECT'):' · DRAG TO PAN')}
         </div>
 
         {sel && <PinDetail key={sel.id} embed={sel} isPhone={isPhone} onClose={()=>setSelId(null)} updateEmbed={updateEmbed}
@@ -652,7 +656,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   const [fOpen,setFOpen] = React.useState(false);
   const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
@@ -665,6 +669,13 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColo
       <div style={{ width:1, height:24, background:T.color.line }} />
       {/* select / pan tool */}
       <Segmented size="sm" value={tool} onChange={setTool} options={[{value:'select',label:'Select'},{value:'pan',label:'Pan'}]} />
+      {/* lock anchor positions — default on, per browser. Unlock only to deliberately reposition pins. */}
+      <button onClick={()=>setLocked(v=>!v)} title={locked?'Anchor positions locked — click to unlock for repositioning':'Positions UNLOCKED — a drag moves pins. Click to lock.'}
+        style={{ display:'flex', alignItems:'center', gap:6, height:30, padding:'0 11px', borderRadius:T.radius.md,
+          background: locked?'rgba(47,214,166,.16)':'rgba(245,166,35,.20)', border:'1px solid '+(locked?'rgba(47,214,166,.5)':'rgba(245,166,35,.65)'),
+          color: locked?T.color.green:'#F5A623', fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em' }}>
+        <Icon name={locked?'lock':'unlock'} size={14}/>{locked?'Locked':'Unlocked'}
+      </button>
       {/* filters — collapsed into one popover */}
       <div style={{ position:'relative' }}>
         <button onClick={()=>setFOpen(o=>!o)} title="Filters"

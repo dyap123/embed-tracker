@@ -202,6 +202,15 @@ const ICONS = {
   }), /*#__PURE__*/React.createElement("path", {
     d: "M8 11V8a4 4 0 0 1 8 0v3"
   })),
+  unlock: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "5",
+    y: "11",
+    width: "14",
+    height: "9",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 11V8a4 4 0 0 1 7.5-1.5"
+  })),
   rfi: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
     d: "M5 4h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-4 4V5a1 1 0 0 1 1-1Z"
   }), /*#__PURE__*/React.createElement("path", {
