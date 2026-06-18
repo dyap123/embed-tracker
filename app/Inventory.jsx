@@ -16,6 +16,10 @@ function neededInfo(iso){
   const lbl = days<0 ? `${-days}d overdue` : days===0 ? 'due today' : days===1 ? 'tomorrow' : `${days}d`;
   return { days, col, lbl };
 }
+// per-type receiving log (embeds/{mark}.receipts = [{qty,date}, …]) — partial deliveries over time
+function recvList(r){ const x=r&&r.receipts; if(!x) return []; const a=Array.isArray(x)?x:Object.values(x); return a.filter(e=>e&&e.qty!=null); }
+function recvTotal(r){ return recvList(r).reduce((s,e)=>s+(+e.qty||0),0); }
+function recvLast(r){ const d=recvList(r).map(e=>e.date).filter(Boolean).sort(); return d.length?d[d.length-1]:''; }
 function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, seqMeta={}, onSetSeqNeeded }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
@@ -69,8 +73,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const matchEmbed = (e)=>{ if(!terms.length) return true; const hay=[e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
     return terms.every(t=>hay.includes(t)); };
   const byMarkSort = (a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true});
-  // received sort: not-yet-received rows always sink to the bottom; otherwise ISO dates compare chronologically
-  const byRecv = (dir)=> (a,b)=>{ const ra=a.receivedAt, rb=b.receivedAt; if(ra===rb) return byMarkSort(a,b);
+  // received sort by latest receipt date: not-yet-received rows sink to the bottom; ISO dates compare chronologically
+  const byRecv = (dir)=> (a,b)=>{ const ra=recvLast(a), rb=recvLast(b); if(ra===rb) return byMarkSort(a,b);
     if(!ra) return 1; if(!rb) return -1; return dir==='desc' ? (rb<ra?-1:1) : (ra<rb?-1:1); };
   const sortFn = sortBy==='recvDesc' ? byRecv('desc') : sortBy==='recvAsc' ? byRecv('asc') : byMarkSort;
   const rows = Object.values(byMark)
@@ -92,7 +96,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
-      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:r.receivedAt||'',
+      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:recvTotal(r), receivedOn:recvLast(r)||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
       bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq }; });
     window.exportInventory(data, kind, SEQS); }
@@ -243,7 +247,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{r.receivedAt?<span style={{ color:T.color.green }}> · Rec’d {window.shortDate(r.receivedAt)}</span>:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{recvTotal(r)>0?<span style={{ color:T.color.green }}> · Rec’d {recvTotal(r)}/{n.qty}{recvLast(r)?' · '+window.shortDate(recvLast(r)):''}</span>:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
@@ -263,7 +267,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                 </div>
                 {isOpen && <>
                   <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery}
-                    received={r.receivedAt} onSetReceived={(d)=>onEditType(r.id, { id:r.id, receivedAt:d||null })} />
+                    receipts={r.receipts} onSetReceipts={(arr)=>onEditType(r.id, { id:r.id, receipts:(arr&&arr.length)?arr:null })} />
                   <SeqBreakdown info={seqInfo[r.id]} deliv={delivInfo[r.id]} seqs={SEQS} />
                   <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} />
                 </>}
@@ -330,32 +334,66 @@ function DelivCell({ delv, transit, isPhone }){
 }
 
 /* bulk delivery check-off for a mark (scoped to the current sequence filter) — open to all signed-in users */
-function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, received, onSetReceived }){
+/* receiving log — log "received N on date D" as many times as needed; accumulates toward the type's qty */
+function ReceiptLog({ qty, receipts, onChange }){
+  const list = recvList({ receipts });
+  const total = list.reduce((s,e)=>s+(+e.qty||0),0);
+  const outstanding = Math.max(0, (qty||0) - total);
+  const [addQty, setAddQty] = React.useState('');
+  const [addDate, setAddDate] = React.useState(()=> new Date().toISOString().slice(0,10));
+  function add(){ const nq=Math.round(+addQty); if(!nq || nq<=0 || !onChange) return;
+    onChange([...list, { qty:nq, date:addDate||new Date().toISOString().slice(0,10) }]); setAddQty(''); }
+  function remove(i){ if(onChange) onChange(list.filter((_,k)=>k!==i)); }
+  const indexed = list.map((e,i)=>({ e, i })).sort((a,b)=> String(b.e.date||'').localeCompare(String(a.e.date||'')));
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
+        <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Receiving log</span>
+        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel300 }}>received <b style={{ color:T.color.green }}>{total}</b> of {qty||'—'} · <b style={{ color:outstanding>0?T.color.red:T.color.green }}>{outstanding}</b> outstanding</span>
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, flexWrap:'wrap' }}>
+        <input type="number" min="1" value={addQty} onChange={e=>setAddQty(e.target.value)} placeholder="Qty"
+          onKeyDown={e=>{ if(e.key==='Enter') add(); }} style={{ ...inputStyle, width:74, padding:'7px 9px', fontSize:13, fontFamily:T.font.mono }} />
+        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>received on</span>
+        <div style={{ width:158 }}><DatePopover value={addDate} onChange={setAddDate} /></div>
+        <Btn size="sm" kind="primary" icon="plus" onClick={add}>Log receipt</Btn>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:8 }}>
+        {indexed.length===0 && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel600 }}>No receipts logged yet.</span>}
+        {indexed.map(({e,i})=>(
+          <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 11px', borderRadius:8, background:'rgba(47,214,166,.08)', border:'1px solid rgba(47,214,166,.25)' }}>
+            <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13.5, color:T.color.green }}>{e.qty}</span>
+            <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>received</span>
+            <span style={{ fontFamily:T.font.mono, fontSize:12, color:'#fff' }}>{window.shortDate(e.date)||'—'}</span>
+            <button onClick={()=>remove(i)} title="Remove receipt" style={{ marginLeft:'auto', color:T.color.steel400, padding:2 }}><Icon name="close" size={13}/></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, receipts, onSetReceipts }){
   const notDel = Math.max(0, (n.qty||n.pinned||0) - n.delv - n.transit);
   const scope = seqFilter==='all' ? 'all sequences' : seqLabel(seqFilter);
-  const todayIso = ()=> new Date().toISOString().slice(0,10);
-  // delivery-status buttons set the per-pin status (drives the map); "Delivered" also stamps the type's received date
-  const B = (status, label, rgb, after) => (
-    <button onClick={()=>{ if(ids.length && onBulkDelivery) onBulkDelivery(ids, status, status==='delivered'?(received||todayIso()):undefined); if(after) after(); }}
+  const B = (status, label, rgb) => (
+    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status)} disabled={!ids.length}
       style={{ flex:1, padding:'9px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em',
-        background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, cursor:'pointer' }}>{label}</button>
+        background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
   );
   return (
     <div style={{ padding:'12px 20px 0' }}>
-      {/* received date — stored on the type in the inventory, no plan dependency; changing it saves immediately */}
-      <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10, flexWrap:'wrap' }}>
-        <span style={{ fontFamily:T.font.mono, fontSize:10, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Received on</span>
-        <div style={{ width:170 }}><DatePopover value={received||''} onChange={d=>onSetReceived && onSetReceived(d)} /></div>
-        {received && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.green }}>✓ {window.shortDate(received)}</span>}
-      </div>
-      <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivery status · {ids.length} pins · {scope}</span>
+      {/* receiving log — record partial deliveries (qty received on a date); independent of the plan */}
+      <ReceiptLog qty={n.qty} receipts={receipts} onChange={onSetReceipts} />
+      <span style={{ display:'block', marginTop:16, fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivery status on plan · {ids.length} pins · {scope}</span>
       <div style={{ display:'flex', gap:7, marginTop:8 }}>
-        {B('delivered','Delivered','47,214,166', ()=> onSetReceived && onSetReceived(received||todayIso()))}
+        {B('delivered','Delivered','47,214,166')}
         {B('transit','On the way','245,194,75')}
         {B('none','Not delivered','240,85,107')}
       </div>
       <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:8 }}>
-        Delivered <b style={{ color:T.color.green }}>{n.delv}</b> · On the way <b style={{ color:T.color.yellow }}>{n.transit}</b> · Not delivered <b style={{ color:T.color.red }}>{notDel}</b>
+        Delivered <b style={{ color:T.color.green }}>{n.delv}</b> · On the way <b style={{ color:T.color.yellow }}>{n.transit}</b> · Not <b style={{ color:T.color.red }}>{notDel}</b>
+        <span style={{ color:T.color.steel600 }}> · colors the plan dots</span>
       </div>
     </div>
   );

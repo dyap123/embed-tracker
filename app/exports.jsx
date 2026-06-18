@@ -156,7 +156,7 @@
     const SQ = seqs || [];
     const data=rows.map(r=>{ const sc={}; SQ.forEach(s=>{ const c=(r.seq&&r.seq[s])||{pinned:0,inst:0}; sc[(window.seqLabel?window.seqLabel(s):'Seq '+s)]=c.pinned; });
       return { Mark:r.id, Description:r.desc||'', Qty:r.qty, Placed:r.pinned,
-        Delivered:r.delivered!=null?r.delivered:'', 'On the way':r.transit!=null?r.transit:'', 'Not delivered':r.notDelivered!=null?r.notDelivered:'', Received:r.received||'',
+        Delivered:r.delivered!=null?r.delivered:'', 'On the way':r.transit!=null?r.transit:'', 'Not delivered':r.notDelivered!=null?r.notDelivered:'', Received:r.received!=null?r.received:'', 'Last Received':r.receivedOn||'',
         Installed:r.inst, Remaining:r.remaining, 'Complete %':r.pct+'%',
         ...sc, '# Bolts':r.bolts!=null?r.bolts:'', Plate:r.plate||'', 'Length (in)':r.len!=null?r.len:'', Supplier:r.supplier||'' }; });
 
