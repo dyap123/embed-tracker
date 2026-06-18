@@ -119,14 +119,10 @@ function Inventory({
     if (e.installed) m._inst = (m._inst || 0) + 1;
     const dl = dState(e);
     if (dl === 'delivered') m._delv = (m._delv || 0) + 1;else if (dl === 'transit') m._transit = (m._transit || 0) + 1;
-    const ra = window.receivedAt(e);
-    if (ra && (!m._recvAt || ra > m._recvAt)) {
-      m._recvAt = ra;
-      m._recvBy = e.deliveredBy || m._recvBy;
-    } // latest receipt
     if (e.hasKnife) m.knifePlate = true;
     if (e.hasStub) m.stubColumn = true;
   });
+  // received date lives on the type record in the inventory (embeds/{mark}.receivedAt) — independent of the plan
   const ql = q.trim().toLowerCase();
   // tokenized search — every space-separated term must match somewhere (mark, desc, supplier, plate, notes, sequence)
   const terms = ql.split(/\s+/).filter(Boolean);
@@ -145,8 +141,8 @@ function Inventory({
   });
   // received sort: not-yet-received rows always sink to the bottom; otherwise ISO dates compare chronologically
   const byRecv = dir => (a, b) => {
-    const ra = a._recvAt,
-      rb = b._recvAt;
+    const ra = a.receivedAt,
+      rb = b.receivedAt;
     if (ra === rb) return byMarkSort(a, b);
     if (!ra) return 1;
     if (!rb) return -1;
@@ -226,7 +222,7 @@ function Inventory({
         delivered: n.delv,
         transit: n.transit,
         notDelivered: Math.max(0, n.qty - n.delv - n.transit),
-        received: r._recvAt || '',
+        received: r.receivedAt || '',
         remaining: Math.max(0, n.qty - n.inst),
         pct: n.qty ? Math.round(n.inst / n.qty * 100) : 0,
         bolts: r.bolts,
@@ -620,7 +616,6 @@ function Inventory({
     }
   }, /*#__PURE__*/React.createElement(DatePopover, {
     value: seqNeeded,
-    disabled: !canEdit,
     onChange: d => onSetSeqNeeded && onSetSeqNeeded(seqFilter, d)
   })), seqNi && /*#__PURE__*/React.createElement("span", {
     style: {
@@ -835,11 +830,11 @@ function Inventory({
         fontSize: 10.5,
         color: T.color.steel400
       }
-    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : '', r._recvAt ? /*#__PURE__*/React.createElement("span", {
+    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : '', r.receivedAt ? /*#__PURE__*/React.createElement("span", {
       style: {
         color: T.color.green
       }
-    }, " \xB7 Rec\u2019d ", window.shortDate(r._recvAt)) : ''))), /*#__PURE__*/React.createElement(Num, {
+    }, " \xB7 Rec\u2019d ", window.shortDate(r.receivedAt)) : ''))), /*#__PURE__*/React.createElement(Num, {
       label: isPhone ? 'Qty' : null,
       v: n.qty
     }), !isPhone && /*#__PURE__*/React.createElement(Num, {
@@ -902,8 +897,11 @@ function Inventory({
       ids: markIds(r.id),
       seqFilter: seqFilter,
       onBulkDelivery: onBulkDelivery,
-      recvAt: r._recvAt,
-      recvBy: r._recvBy
+      received: r.receivedAt,
+      onSetReceived: d => onEditType(r.id, {
+        id: r.id,
+        receivedAt: d || null
+      })
     }), /*#__PURE__*/React.createElement(SeqBreakdown, {
       info: seqInfo[r.id],
       deliv: delivInfo[r.id],
@@ -1115,15 +1113,18 @@ function DeliveryControls({
   ids,
   seqFilter,
   onBulkDelivery,
-  recvAt,
-  recvBy
+  received,
+  onSetReceived
 }) {
   const notDel = Math.max(0, (n.qty || n.pinned || 0) - n.delv - n.transit);
   const scope = seqFilter === 'all' ? 'all sequences' : seqLabel(seqFilter);
-  const [recvDate, setRecvDate] = React.useState(() => new Date().toISOString().slice(0, 10)); // received date for "Delivered" (defaults today)
-  const B = (status, label, rgb, date) => /*#__PURE__*/React.createElement("button", {
-    onClick: () => ids.length && onBulkDelivery && onBulkDelivery(ids, status, date),
-    disabled: !ids.length,
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  // delivery-status buttons set the per-pin status (drives the map); "Delivered" also stamps the type's received date
+  const B = (status, label, rgb, after) => /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (ids.length && onBulkDelivery) onBulkDelivery(ids, status, status === 'delivered' ? received || todayIso() : undefined);
+      if (after) after();
+    },
     style: {
       flex: 1,
       padding: '9px 0',
@@ -1135,15 +1136,43 @@ function DeliveryControls({
       background: `rgba(${rgb},.14)`,
       border: `1px solid rgba(${rgb},.5)`,
       color: `rgb(${rgb})`,
-      opacity: ids.length ? 1 : .4,
-      cursor: ids.length ? 'pointer' : 'default'
+      cursor: 'pointer'
     }
   }, label);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '12px 20px 0'
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      marginBottom: 10,
+      flexWrap: 'wrap'
+    }
   }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 10,
+      letterSpacing: '.1em',
+      textTransform: 'uppercase',
+      color: T.color.steel400
+    }
+  }, "Received on"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 170
+    }
+  }, /*#__PURE__*/React.createElement(DatePopover, {
+    value: received || '',
+    onChange: d => onSetReceived && onSetReceived(d)
+  })), received && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.green
+    }
+  }, "\u2713 ", window.shortDate(received))), /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 9.5,
@@ -1151,34 +1180,13 @@ function DeliveryControls({
       textTransform: 'uppercase',
       color: T.color.steel400
     }
-  }, "Check off delivery \xB7 ", ids.length, " pins \xB7 ", scope), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 9,
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 11,
-      color: T.color.steel300,
-      whiteSpace: 'nowrap'
-    }
-  }, "Received on"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 170
-    }
-  }, /*#__PURE__*/React.createElement(DatePopover, {
-    value: recvDate,
-    onChange: d => setRecvDate(d)
-  }))), /*#__PURE__*/React.createElement("div", {
+  }, "Delivery status \xB7 ", ids.length, " pins \xB7 ", scope), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 7,
       marginTop: 8
     }
-  }, B('delivered', 'Delivered', '47,214,166', recvDate || undefined), B('transit', 'On the way', '245,194,75'), B('none', 'Not delivered', '240,85,107')), /*#__PURE__*/React.createElement("div", {
+  }, B('delivered', 'Delivered', '47,214,166', () => onSetReceived && onSetReceived(received || todayIso())), B('transit', 'On the way', '245,194,75'), B('none', 'Not delivered', '240,85,107')), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 10.5,
@@ -1197,11 +1205,7 @@ function DeliveryControls({
     style: {
       color: T.color.red
     }
-  }, notDel), recvAt && /*#__PURE__*/React.createElement("span", null, " \xB7 received ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: T.color.green
-    }
-  }, window.shortDate(recvAt)), recvBy ? ' by ' + recvBy : '')));
+  }, notDel)));
 }
 
 /* expandable per-type editor — input info for each embed mark */

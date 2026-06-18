@@ -59,8 +59,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   scoped.forEach(e=>{ const m = byMark[e.mark] || (byMark[e.mark] = { id:e.mark, desc:e.typeLabel, seq:e.sequence });
     m._pinned = (m._pinned||0)+1; if(e.installed) m._inst = (m._inst||0)+1;
     const dl = dState(e); if(dl==='delivered') m._delv=(m._delv||0)+1; else if(dl==='transit') m._transit=(m._transit||0)+1;
-    const ra = window.receivedAt(e); if(ra && (!m._recvAt || ra>m._recvAt)){ m._recvAt=ra; m._recvBy=e.deliveredBy||m._recvBy; }   // latest receipt
     if(e.hasKnife) m.knifePlate = true; if(e.hasStub) m.stubColumn = true; });
+  // received date lives on the type record in the inventory (embeds/{mark}.receivedAt) — independent of the plan
   const ql = q.trim().toLowerCase();
   // tokenized search — every space-separated term must match somewhere (mark, desc, supplier, plate, notes, sequence)
   const terms = ql.split(/\s+/).filter(Boolean);
@@ -70,7 +70,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     return terms.every(t=>hay.includes(t)); };
   const byMarkSort = (a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true});
   // received sort: not-yet-received rows always sink to the bottom; otherwise ISO dates compare chronologically
-  const byRecv = (dir)=> (a,b)=>{ const ra=a._recvAt, rb=b._recvAt; if(ra===rb) return byMarkSort(a,b);
+  const byRecv = (dir)=> (a,b)=>{ const ra=a.receivedAt, rb=b.receivedAt; if(ra===rb) return byMarkSort(a,b);
     if(!ra) return 1; if(!rb) return -1; return dir==='desc' ? (rb<ra?-1:1) : (ra<rb?-1:1); };
   const sortFn = sortBy==='recvDesc' ? byRecv('desc') : sortBy==='recvAsc' ? byRecv('asc') : byMarkSort;
   const rows = Object.values(byMark)
@@ -92,7 +92,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
-      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:r._recvAt||'',
+      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:r.receivedAt||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
       bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq }; });
     window.exportInventory(data, kind, SEQS); }
@@ -189,7 +189,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <span style={{ fontFamily:T.font.mono, fontSize:10, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Needed by</span>
-              <div style={{ width:168 }}><DatePopover value={seqNeeded} disabled={!canEdit} onChange={d=>onSetSeqNeeded && onSetSeqNeeded(seqFilter, d)} /></div>
+              <div style={{ width:168 }}><DatePopover value={seqNeeded} onChange={d=>onSetSeqNeeded && onSetSeqNeeded(seqFilter, d)} /></div>
               {seqNi && <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:12, color:seqNi.col }}>{seqNi.lbl}</span>}
             </div>
             <div style={{ marginLeft:'auto', display:'flex', gap:14, fontFamily:T.font.mono, fontSize:12, flexWrap:'wrap' }}>
@@ -243,7 +243,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{r._recvAt?<span style={{ color:T.color.green }}> · Rec’d {window.shortDate(r._recvAt)}</span>:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{r.receivedAt?<span style={{ color:T.color.green }}> · Rec’d {window.shortDate(r.receivedAt)}</span>:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
@@ -262,7 +262,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
                 {isOpen && <>
-                  <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} recvAt={r._recvAt} recvBy={r._recvBy} />
+                  <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery}
+                    received={r.receivedAt} onSetReceived={(d)=>onEditType(r.id, { id:r.id, receivedAt:d||null })} />
                   <SeqBreakdown info={seqInfo[r.id]} deliv={delivInfo[r.id]} seqs={SEQS} />
                   <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} />
                 </>}
@@ -329,31 +330,32 @@ function DelivCell({ delv, transit, isPhone }){
 }
 
 /* bulk delivery check-off for a mark (scoped to the current sequence filter) — open to all signed-in users */
-function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, recvAt, recvBy }){
+function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, received, onSetReceived }){
   const notDel = Math.max(0, (n.qty||n.pinned||0) - n.delv - n.transit);
   const scope = seqFilter==='all' ? 'all sequences' : seqLabel(seqFilter);
-  const [recvDate, setRecvDate] = React.useState(()=> new Date().toISOString().slice(0,10));   // received date for "Delivered" (defaults today)
-  const B = (status, label, rgb, date) => (
-    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status, date)} disabled={!ids.length}
+  const todayIso = ()=> new Date().toISOString().slice(0,10);
+  // delivery-status buttons set the per-pin status (drives the map); "Delivered" also stamps the type's received date
+  const B = (status, label, rgb, after) => (
+    <button onClick={()=>{ if(ids.length && onBulkDelivery) onBulkDelivery(ids, status, status==='delivered'?(received||todayIso()):undefined); if(after) after(); }}
       style={{ flex:1, padding:'9px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em',
-        background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
+        background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, cursor:'pointer' }}>{label}</button>
   );
   return (
     <div style={{ padding:'12px 20px 0' }}>
-      <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Check off delivery · {ids.length} pins · {scope}</span>
-      {/* received date used when clicking Delivered — defaults today, set a past date to back-date */}
-      <div style={{ display:'flex', alignItems:'center', gap:9, marginTop:8 }}>
-        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel300, whiteSpace:'nowrap' }}>Received on</span>
-        <div style={{ width:170 }}><DatePopover value={recvDate} onChange={d=>setRecvDate(d)} /></div>
+      {/* received date — stored on the type in the inventory, no plan dependency; changing it saves immediately */}
+      <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10, flexWrap:'wrap' }}>
+        <span style={{ fontFamily:T.font.mono, fontSize:10, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Received on</span>
+        <div style={{ width:170 }}><DatePopover value={received||''} onChange={d=>onSetReceived && onSetReceived(d)} /></div>
+        {received && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.green }}>✓ {window.shortDate(received)}</span>}
       </div>
+      <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivery status · {ids.length} pins · {scope}</span>
       <div style={{ display:'flex', gap:7, marginTop:8 }}>
-        {B('delivered','Delivered','47,214,166', recvDate||undefined)}
+        {B('delivered','Delivered','47,214,166', ()=> onSetReceived && onSetReceived(received||todayIso()))}
         {B('transit','On the way','245,194,75')}
         {B('none','Not delivered','240,85,107')}
       </div>
       <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:8 }}>
         Delivered <b style={{ color:T.color.green }}>{n.delv}</b> · On the way <b style={{ color:T.color.yellow }}>{n.transit}</b> · Not delivered <b style={{ color:T.color.red }}>{notDel}</b>
-        {recvAt && <span> · received <b style={{ color:T.color.green }}>{window.shortDate(recvAt)}</b>{recvBy?' by '+recvBy:''}</span>}
       </div>
     </div>
   );
