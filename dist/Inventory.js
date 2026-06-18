@@ -1,5 +1,18 @@
 /* EmbedYap — Inventory by embed MARK (201A, 218A…) with editable per-type info + delivery tracking */
 const INV_COLS = '1.4fr .58fr .58fr .72fr .72fr 1.05fr 28px'; // mark·desc | qty | pinned | delivered | installed | remaining | chevron
+const SELECT_OPT = {
+  background: '#10151E',
+  color: '#E9EEF5'
+}; // readable <option> rows on the dark dropdowns
+const SELECT_STYLE = {
+  background: '#10151E',
+  border: 'none',
+  outline: 'none',
+  fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+  fontSize: 12,
+  colorScheme: 'dark',
+  cursor: 'pointer'
+};
 const DELIV_FILTERS = [
 // delivery-status scope for the inventory page
 {
@@ -213,6 +226,21 @@ function Inventory({
   function markIds(id) {
     return scoped.filter(e => e.mark === id).map(e => e.id);
   }
+  // append a receipt to a mark's receiving log (used from the Summary drill-down)
+  function logReceipt(mark, qty, date) {
+    const nq = Math.round(+qty);
+    if (!mark || !nq || nq <= 0) return;
+    const cur = recvList({
+      receipts: (types[mark] || {}).receipts
+    });
+    onEditType(mark, {
+      id: mark,
+      receipts: [...cur, {
+        qty: nq,
+        date: date || new Date().toISOString().slice(0, 10)
+      }]
+    });
+  }
   function expInv(kind) {
     const data = rows.map(r => {
       const n = num(r);
@@ -353,20 +381,16 @@ function Inventory({
     value: seqFilter,
     onChange: e => setSeqFilter(e.target.value),
     style: {
-      background: 'transparent',
-      border: 'none',
-      outline: 'none',
-      color: seqFilter !== 'all' ? '#fff' : T.color.steel200,
-      fontFamily: T.font.mono,
-      fontSize: 12,
-      colorScheme: 'dark',
-      cursor: 'pointer'
+      ...SELECT_STYLE,
+      color: seqFilter !== 'all' ? '#fff' : T.color.steel200
     }
   }, /*#__PURE__*/React.createElement("option", {
-    value: "all"
+    value: "all",
+    style: SELECT_OPT
   }, "All sequences"), SEQS.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
-    value: s
+    value: s,
+    style: SELECT_OPT
   }, seqLabel(s))))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -389,18 +413,13 @@ function Inventory({
     value: delivFilter,
     onChange: e => setDelivFilter(e.target.value),
     style: {
-      background: 'transparent',
-      border: 'none',
-      outline: 'none',
-      color: delivFilter !== 'all' ? '#fff' : T.color.steel200,
-      fontFamily: T.font.mono,
-      fontSize: 12,
-      colorScheme: 'dark',
-      cursor: 'pointer'
+      ...SELECT_STYLE,
+      color: delivFilter !== 'all' ? '#fff' : T.color.steel200
     }
   }, DELIV_FILTERS.map(f => /*#__PURE__*/React.createElement("option", {
     key: f.value,
-    value: f.value
+    value: f.value,
+    style: SELECT_OPT
   }, f.label)))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -480,21 +499,18 @@ function Inventory({
     value: sortBy,
     onChange: e => setSortBy(e.target.value),
     style: {
-      background: 'transparent',
-      border: 'none',
-      outline: 'none',
-      color: sortBy !== 'mark' ? '#fff' : T.color.steel200,
-      fontFamily: T.font.mono,
-      fontSize: 12,
-      colorScheme: 'dark',
-      cursor: 'pointer'
+      ...SELECT_STYLE,
+      color: sortBy !== 'mark' ? '#fff' : T.color.steel200
     }
   }, /*#__PURE__*/React.createElement("option", {
-    value: "mark"
+    value: "mark",
+    style: SELECT_OPT
   }, "Sort: Mark"), /*#__PURE__*/React.createElement("option", {
-    value: "recvDesc"
+    value: "recvDesc",
+    style: SELECT_OPT
   }, "Sort: Received (newest)"), /*#__PURE__*/React.createElement("option", {
-    value: "recvAsc"
+    value: "recvAsc",
+    style: SELECT_OPT
   }, "Sort: Received (oldest)"))), canEdit && /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
@@ -730,7 +746,8 @@ function Inventory({
     onBulkDelivery: onBulkDelivery,
     onBulkInstall: onBulkInstall,
     seqMeta: seqMeta,
-    groupBy: groupBy
+    groupBy: groupBy,
+    onLogReceipt: logReceipt
   }) : /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -1545,9 +1562,13 @@ function SummaryGrid({
   onBulkDelivery,
   onBulkInstall,
   seqMeta = {},
-  groupBy
+  groupBy,
+  onLogReceipt
 }) {
   const [openKey, setOpenKey] = React.useState(null);
+  const [secDate, setSecDate] = React.useState(() => new Date().toISOString().slice(0, 10)); // date for "delivered on" + receipt logs
+  const [logKey, setLogKey] = React.useState(null); // 'groupKey|mark' of the open per-mark receipt logger
+  const [logQty, setLogQty] = React.useState('');
   if (!groups.length) return /*#__PURE__*/React.createElement(Card, {
     pad: 20,
     glow: true,
@@ -1561,7 +1582,7 @@ function SummaryGrid({
       color: T.color.steel400
     }
   }, "No embeds in scope."));
-  const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px'; // mark | delivered/total | installed | per-mark actions
+  const MARK_COLS = 'minmax(0,1fr) 48px 26px 116px'; // mark | delivered/total | installed | per-mark actions (3 status + log)
   // auto-fit: few groups stretch to fill the width (more room to check off); many settle at ~340px and wrap
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1714,14 +1735,41 @@ function SummaryGrid({
       onClick: e => e.stopPropagation()
     }, /*#__PURE__*/React.createElement("div", {
       style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        flexWrap: 'wrap',
+        marginBottom: 7
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
         fontFamily: T.font.mono,
         fontSize: 9,
         letterSpacing: '.12em',
         textTransform: 'uppercase',
-        color: T.color.steel400,
-        marginBottom: 7
+        color: T.color.steel400
       }
     }, "Mark all ", g.embeds, " embeds"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 10,
+        color: T.color.steel400
+      }
+    }, "on"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 150
+      }
+    }, /*#__PURE__*/React.createElement(DatePopover, {
+      value: secDate,
+      onChange: setSecDate
+    })))), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
         gap: 6,
@@ -1730,7 +1778,7 @@ function SummaryGrid({
       }
     }, [['delivered', 'Delivered', '47,214,166'], ['transit', 'On the way', '245,194,75'], ['none', 'Not', '240,85,107']].map(([st, lbl, rgb]) => /*#__PURE__*/React.createElement("button", {
       key: st,
-      onClick: () => g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st),
+      onClick: () => g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st, st === 'delivered' ? secDate : undefined),
       style: {
         flex: '1 1 auto',
         padding: '7px 8px',
@@ -1788,73 +1836,156 @@ function SummaryGrid({
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        maxHeight: 300,
+        maxHeight: 320,
         overflowY: 'auto'
       }
-    }, g.marksList.map(m => /*#__PURE__*/React.createElement("div", {
-      key: m.mark,
-      style: {
-        display: 'grid',
-        gridTemplateColumns: MARK_COLS,
-        gap: 8,
-        alignItems: 'center'
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: T.font.mono,
-        fontWeight: 700,
-        fontSize: 11.5,
-        color: T.color.amberHot,
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis'
-      }
-    }, m.mark), /*#__PURE__*/React.createElement("span", {
-      style: {
-        textAlign: 'right',
-        fontFamily: T.font.mono,
-        fontSize: 12,
-        color: T.color.green
-      }
-    }, m.delivered, /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: T.color.steel500
-      }
-    }, "/", m.embeds), m.transit ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: T.color.yellow
-      }
-    }, " +", m.transit) : null), /*#__PURE__*/React.createElement("span", {
-      style: {
-        textAlign: 'right',
-        fontFamily: T.font.mono,
-        fontSize: 12,
-        color: T.color.green
-      }
-    }, m.installed), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 3,
-        justifyContent: 'flex-end'
-      }
-    }, [['delivered', 'check', '47,214,166', 'delivered'], ['transit', 'clock', '245,194,75', 'on the way'], ['none', 'close', '240,85,107', 'not delivered']].map(([st, ic, rgb, word]) => /*#__PURE__*/React.createElement("button", {
-      key: st,
-      title: `Mark ${m.mark} ${word}`,
-      onClick: () => m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st),
-      style: {
-        width: 23,
-        height: 23,
-        display: 'grid',
-        placeItems: 'center',
-        borderRadius: 6,
-        background: `rgba(${rgb},.14)`,
-        border: `1px solid rgba(${rgb},.45)`,
-        color: `rgb(${rgb})`
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: ic,
-      size: 13
-    })))))))));
+    }, g.marksList.map(m => {
+      const lk = g.key + '|' + m.mark;
+      const logOpen = logKey === lk;
+      return /*#__PURE__*/React.createElement(React.Fragment, {
+        key: m.mark
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: 'grid',
+          gridTemplateColumns: MARK_COLS,
+          gap: 8,
+          alignItems: 'center'
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: T.font.mono,
+          fontWeight: 700,
+          fontSize: 11.5,
+          color: T.color.amberHot,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }
+      }, m.mark), /*#__PURE__*/React.createElement("span", {
+        style: {
+          textAlign: 'right',
+          fontFamily: T.font.mono,
+          fontSize: 12,
+          color: T.color.green
+        }
+      }, m.delivered, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: T.color.steel500
+        }
+      }, "/", m.embeds), m.transit ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: T.color.yellow
+        }
+      }, " +", m.transit) : null), /*#__PURE__*/React.createElement("span", {
+        style: {
+          textAlign: 'right',
+          fontFamily: T.font.mono,
+          fontSize: 12,
+          color: T.color.green
+        }
+      }, m.installed), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: 'flex',
+          gap: 3,
+          justifyContent: 'flex-end'
+        }
+      }, [['delivered', 'check', '47,214,166', 'delivered'], ['transit', 'clock', '245,194,75', 'on the way'], ['none', 'close', '240,85,107', 'not delivered']].map(([st, ic, rgb, word]) => /*#__PURE__*/React.createElement("button", {
+        key: st,
+        title: `Mark ${m.mark} ${word}`,
+        onClick: () => m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st, st === 'delivered' ? secDate : undefined),
+        style: {
+          width: 23,
+          height: 23,
+          display: 'grid',
+          placeItems: 'center',
+          borderRadius: 6,
+          background: `rgba(${rgb},.14)`,
+          border: `1px solid rgba(${rgb},.45)`,
+          color: `rgb(${rgb})`
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: ic,
+        size: 13
+      }))), /*#__PURE__*/React.createElement("button", {
+        title: `Log a receipt for ${m.mark}`,
+        onClick: () => {
+          setLogKey(logOpen ? null : lk);
+          setLogQty('');
+        },
+        style: {
+          width: 23,
+          height: 23,
+          display: 'grid',
+          placeItems: 'center',
+          borderRadius: 6,
+          background: logOpen ? 'rgba(245,194,75,.3)' : 'rgba(245,194,75,.14)',
+          border: '1px solid rgba(245,194,75,.5)',
+          color: '#F5C24B'
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "calendar",
+        size: 12
+      })))), logOpen && /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          padding: '2px 2px 6px',
+          flexWrap: 'wrap'
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: T.font.mono,
+          fontSize: 10,
+          color: T.color.steel400
+        }
+      }, "Received"), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        min: "1",
+        value: logQty,
+        onChange: e => setLogQty(e.target.value),
+        placeholder: "Qty",
+        autoFocus: true,
+        onKeyDown: e => {
+          if (e.key === 'Enter' && +logQty > 0) {
+            onLogReceipt && onLogReceipt(m.mark, logQty, secDate);
+            setLogKey(null);
+            setLogQty('');
+          }
+        },
+        style: {
+          ...inputStyle,
+          width: 64,
+          padding: '6px 8px',
+          fontSize: 12.5,
+          fontFamily: T.font.mono
+        }
+      }), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: T.font.mono,
+          fontSize: 10,
+          color: T.color.steel400
+        }
+      }, "of ", m.embeds, " on"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          width: 150
+        }
+      }, /*#__PURE__*/React.createElement(DatePopover, {
+        value: secDate,
+        onChange: setSecDate
+      })), /*#__PURE__*/React.createElement(Btn, {
+        size: "sm",
+        kind: "primary",
+        icon: "plus",
+        onClick: () => {
+          if (+logQty > 0) {
+            onLogReceipt && onLogReceipt(m.mark, logQty, secDate);
+            setLogKey(null);
+            setLogQty('');
+          }
+        }
+      }, "Log")));
+    }))));
   }));
 }
 function SumStat({

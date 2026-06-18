@@ -1,5 +1,7 @@
 /* EmbedYap — Inventory by embed MARK (201A, 218A…) with editable per-type info + delivery tracking */
 const INV_COLS = '1.4fr .58fr .58fr .72fr .72fr 1.05fr 28px';   // mark·desc | qty | pinned | delivered | installed | remaining | chevron
+const SELECT_OPT = { background:'#10151E', color:'#E9EEF5' };   // readable <option> rows on the dark dropdowns
+const SELECT_STYLE = { background:'#10151E', border:'none', outline:'none', fontFamily:'JetBrains Mono, ui-monospace, monospace', fontSize:12, colorScheme:'dark', cursor:'pointer' };
 const DELIV_FILTERS = [   // delivery-status scope for the inventory page
   { value:'all',         label:'All deliveries' },
   { value:'transit',     label:'Incoming' },        // on the way — what's coming in to check off
@@ -93,6 +95,9 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     c.placed++; const dl=dState(e); if(dl==='delivered') c.delivered++; else if(dl==='transit') c.transit++; });
   // pin ids for a mark within the current sequence scope — used by the bulk check-off buttons
   function markIds(id){ return scoped.filter(e=>e.mark===id).map(e=>e.id); }
+  // append a receipt to a mark's receiving log (used from the Summary drill-down)
+  function logReceipt(mark, qty, date){ const nq=Math.round(+qty); if(!mark || !nq || nq<=0) return;
+    const cur = recvList({ receipts:(types[mark]||{}).receipts }); onEditType(mark, { id:mark, receipts:[...cur, { qty:nq, date:date||new Date().toISOString().slice(0,10) }] }); }
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
@@ -132,17 +137,17 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
             borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Filter quantities + check-off to one pour sequence">
             <Icon name="filter" size={13} style={{ color:seqFilter!=='all'?'#A6A0FF':T.color.steel400 }} />
             <select value={seqFilter} onChange={e=>setSeqFilter(e.target.value)}
-              style={{ background:'transparent', border:'none', outline:'none', color:seqFilter!=='all'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
-              <option value="all">All sequences</option>
-              {SEQS.map(s=><option key={s} value={s}>{seqLabel(s)}</option>)}
+              style={{ ...SELECT_STYLE, color:seqFilter!=='all'?'#fff':T.color.steel200 }}>
+              <option value="all" style={SELECT_OPT}>All sequences</option>
+              {SEQS.map(s=><option key={s} value={s} style={SELECT_OPT}>{seqLabel(s)}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(delivFilter!=='all'?'rgba(245,194,75,.55)':T.color.line),
             borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Filter to a delivery status — pick Incoming to check off what's coming in">
             <Icon name="inventory" size={14} style={{ color:delivFilter!=='all'?'#F5C24B':T.color.steel400 }} />
             <select value={delivFilter} onChange={e=>setDelivFilter(e.target.value)}
-              style={{ background:'transparent', border:'none', outline:'none', color:delivFilter!=='all'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
-              {DELIV_FILTERS.map(f=><option key={f.value} value={f.value}>{f.label}</option>)}
+              style={{ ...SELECT_STYLE, color:delivFilter!=='all'?'#fff':T.color.steel200 }}>
+              {DELIV_FILTERS.map(f=><option key={f.value} value={f.value} style={SELECT_OPT}>{f.label}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(q?'rgba(126,120,240,.5)':T.color.line),
@@ -158,10 +163,10 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
             borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Sort the inventory">
             <Icon name="filter" size={13} style={{ color:sortBy!=='mark'?'#A6A0FF':T.color.steel400 }} />
             <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
-              style={{ background:'transparent', border:'none', outline:'none', color:sortBy!=='mark'?'#fff':T.color.steel200, fontFamily:T.font.mono, fontSize:12, colorScheme:'dark', cursor:'pointer' }}>
-              <option value="mark">Sort: Mark</option>
-              <option value="recvDesc">Sort: Received (newest)</option>
-              <option value="recvAsc">Sort: Received (oldest)</option>
+              style={{ ...SELECT_STYLE, color:sortBy!=='mark'?'#fff':T.color.steel200 }}>
+              <option value="mark" style={SELECT_OPT}>Sort: Mark</option>
+              <option value="recvDesc" style={SELECT_OPT}>Sort: Received (newest)</option>
+              <option value="recvAsc" style={SELECT_OPT}>Sort: Received (oldest)</option>
             </select>
           </div>
           {canEdit && <Btn kind="ghost" size="sm" icon="bolt" onClick={()=>onSyncQtys && onSyncQtys()} title="Set every type's quantity to its current placed count on the plan">Sync to map</Btn>}
@@ -223,7 +228,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
         )}
 
         {viewMode==='summary' ? (
-          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} seqMeta={seqMeta} groupBy={groupBy} />
+          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} seqMeta={seqMeta} groupBy={groupBy} onLogReceipt={logReceipt} />
         ) : (
         <Card pad={0} glow style={{ marginTop:18 }}>
           {!isPhone && (
@@ -445,10 +450,13 @@ function StatTile({ label, value, sub, accent='#fff' }){
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
-function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy }){
+function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy, onLogReceipt }){
   const [openKey, setOpenKey] = React.useState(null);
+  const [secDate, setSecDate] = React.useState(()=> new Date().toISOString().slice(0,10));   // date for "delivered on" + receipt logs
+  const [logKey, setLogKey] = React.useState(null);   // 'groupKey|mark' of the open per-mark receipt logger
+  const [logQty, setLogQty] = React.useState('');
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
-  const MARK_COLS = 'minmax(0,1fr) 54px 30px 86px';   // mark | delivered/total | installed | per-mark actions
+  const MARK_COLS = 'minmax(0,1fr) 48px 26px 116px';   // mark | delivered/total | installed | per-mark actions (3 status + log)
   // auto-fit: few groups stretch to fill the width (more room to check off); many settle at ~340px and wrap
   return (
     <div style={{ display:'grid', gridTemplateColumns:isPhone?'1fr':'repeat(auto-fit, minmax(340px, 1fr))', gap:12, marginTop:18, alignItems:'start' }}>
@@ -490,11 +498,17 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={
             <MiniBar label="Installed" pct={ipct} color={T.color.green} />
             {isOpen && (
               <div style={{ marginTop:13, paddingTop:12, borderTop:'1px solid '+T.color.lineSoft }} onClick={e=>e.stopPropagation()}>
-                {/* mark the whole group delivered / on the way / installed */}
-                <div style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400, marginBottom:7 }}>Mark all {g.embeds} embeds</div>
+                {/* mark the whole section delivered / on the way / installed — Delivered uses the chosen date */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, flexWrap:'wrap', marginBottom:7 }}>
+                  <span style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Mark all {g.embeds} embeds</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>on</span>
+                    <div style={{ width:150 }}><DatePopover value={secDate} onChange={setSecDate} /></div>
+                  </div>
+                </div>
                 <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
                   {[['delivered','Delivered','47,214,166'],['transit','On the way','245,194,75'],['none','Not','240,85,107']].map(([st,lbl,rgb])=>(
-                    <button key={st} onClick={()=>g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st)}
+                    <button key={st} onClick={()=>g.ids.length && onBulkDelivery && onBulkDelivery(g.ids, st, st==='delivered'?secDate:undefined)}
                       style={{ flex:'1 1 auto', padding:'7px 8px', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.02em', whiteSpace:'nowrap',
                         background:`rgba(${rgb},.16)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})` }}>{lbl}</button>
                   ))}
@@ -505,23 +519,41 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={
                 <div style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400, paddingBottom:7 }}>
                   <span>Mark · {g.types} types</span><span style={{ textAlign:'right' }}>Deliv</span><span style={{ textAlign:'right' }}>Inst</span><span style={{ textAlign:'right' }}>Set</span>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:300, overflowY:'auto' }}>
-                  {g.marksList.map(m=>(
-                    <div key={m.mark} style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, alignItems:'center' }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:320, overflowY:'auto' }}>
+                  {g.marksList.map(m=>{ const lk=g.key+'|'+m.mark; const logOpen=logKey===lk; return (
+                    <React.Fragment key={m.mark}>
+                    <div style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, alignItems:'center' }}>
                       <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:11.5, color:T.color.amberHot, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.mark}</span>
                       <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:T.color.green }}>{m.delivered}<span style={{ color:T.color.steel500 }}>/{m.embeds}</span>{m.transit?<span style={{ color:T.color.yellow }}> +{m.transit}</span>:null}</span>
                       <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, color:T.color.green }}>{m.installed}</span>
                       <div style={{ display:'flex', gap:3, justifyContent:'flex-end' }}>
                         {[['delivered','check','47,214,166','delivered'],['transit','clock','245,194,75','on the way'],['none','close','240,85,107','not delivered']].map(([st,ic,rgb,word])=>(
-                          <button key={st} title={`Mark ${m.mark} ${word}`} onClick={()=>m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st)}
+                          <button key={st} title={`Mark ${m.mark} ${word}`} onClick={()=>m.ids.length && onBulkDelivery && onBulkDelivery(m.ids, st, st==='delivered'?secDate:undefined)}
                             style={{ width:23, height:23, display:'grid', placeItems:'center', borderRadius:6,
                               background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.45)`, color:`rgb(${rgb})` }}>
                             <Icon name={ic} size={13} />
                           </button>
                         ))}
+                        <button title={`Log a receipt for ${m.mark}`} onClick={()=>{ setLogKey(logOpen?null:lk); setLogQty(''); }}
+                          style={{ width:23, height:23, display:'grid', placeItems:'center', borderRadius:6,
+                            background:logOpen?'rgba(245,194,75,.3)':'rgba(245,194,75,.14)', border:'1px solid rgba(245,194,75,.5)', color:'#F5C24B' }}>
+                          <Icon name="calendar" size={12} />
+                        </button>
                       </div>
                     </div>
-                  ))}
+                    {logOpen && (
+                      <div style={{ display:'flex', alignItems:'center', gap:7, padding:'2px 2px 6px', flexWrap:'wrap' }}>
+                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>Received</span>
+                        <input type="number" min="1" value={logQty} onChange={e=>setLogQty(e.target.value)} placeholder="Qty" autoFocus
+                          onKeyDown={e=>{ if(e.key==='Enter' && +logQty>0){ onLogReceipt && onLogReceipt(m.mark, logQty, secDate); setLogKey(null); setLogQty(''); } }}
+                          style={{ ...inputStyle, width:64, padding:'6px 8px', fontSize:12.5, fontFamily:T.font.mono }} />
+                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>of {m.embeds} on</span>
+                        <div style={{ width:150 }}><DatePopover value={secDate} onChange={setSecDate} /></div>
+                        <Btn size="sm" kind="primary" icon="plus" onClick={()=>{ if(+logQty>0){ onLogReceipt && onLogReceipt(m.mark, logQty, secDate); setLogKey(null); setLogQty(''); } }}>Log</Btn>
+                      </div>
+                    )}
+                    </React.Fragment>
+                  ); })}
                 </div>
               </div>
             )}
