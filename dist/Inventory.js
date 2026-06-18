@@ -289,6 +289,7 @@ function Inventory({
         key: k,
         marks: new Set(),
         ids: [],
+        undeliveredIds: [],
         embeds: 0,
         delivered: 0,
         transit: 0,
@@ -299,7 +300,10 @@ function Inventory({
       b.marks.add(e.mark);
       b.ids.push(e.id);
       const dl = dState(e);
-      if (dl === 'delivered') b.delivered++;else if (dl === 'transit') b.transit++;
+      if (dl === 'delivered') b.delivered++;else {
+        b.undeliveredIds.push(e.id);
+      }
+      if (dl === 'transit') b.transit++;
       if (e.installed) b.installed++;
       const mk = e.mark || '—';
       const mm = b.byMark[mk] || (b.byMark[mk] = {
@@ -332,6 +336,7 @@ function Inventory({
         label: label(k),
         color: color(k),
         ids: b.ids,
+        undeliveredIds: b.undeliveredIds,
         embeds: b.embeds,
         types: b.marks.size,
         delivered: b.delivered,
@@ -1567,6 +1572,7 @@ function SummaryGrid({
 }) {
   const [openKey, setOpenKey] = React.useState(null);
   const [secDate, setSecDate] = React.useState(() => new Date().toISOString().slice(0, 10)); // date for "delivered on" + receipt logs
+  const [secQty, setSecQty] = React.useState(''); // partial qty to mark delivered for the open section
   const [logKey, setLogKey] = React.useState(null); // 'groupKey|mark' of the open per-mark receipt logger
   const [logQty, setLogQty] = React.useState('');
   if (!groups.length) return /*#__PURE__*/React.createElement(Card, {
@@ -1807,7 +1813,58 @@ function SummaryGrid({
         border: '1px solid rgba(79,163,242,.5)',
         color: T.color.blue
       }
-    }, "Installed")), /*#__PURE__*/React.createElement("div", {
+    }, "Installed")), g.undeliveredIds && g.undeliveredIds.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        flexWrap: 'wrap',
+        marginBottom: 12,
+        padding: '8px 10px',
+        borderRadius: T.radius.md,
+        background: 'rgba(47,214,166,.07)',
+        border: '1px solid rgba(47,214,166,.25)'
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 10.5,
+        color: T.color.steel300
+      }
+    }, "Or mark"), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      min: "1",
+      max: g.undeliveredIds.length,
+      value: secQty,
+      onChange: e => setSecQty(e.target.value),
+      placeholder: g.undeliveredIds.length,
+      style: {
+        ...inputStyle,
+        width: 62,
+        padding: '6px 8px',
+        fontSize: 12.5,
+        fontFamily: T.font.mono
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 10.5,
+        color: T.color.steel400
+      }
+    }, "of ", g.undeliveredIds.length, " not delivered, on ", window.shortDate(secDate)), /*#__PURE__*/React.createElement(Btn, {
+      size: "sm",
+      kind: "primary",
+      icon: "check",
+      style: {
+        marginLeft: 'auto'
+      },
+      onClick: () => {
+        const avail = g.undeliveredIds || [];
+        const nn = Math.min(Math.max(1, Math.round(+secQty || avail.length)), avail.length);
+        if (nn > 0 && onBulkDelivery) onBulkDelivery(avail.slice(0, nn), 'delivered', secDate);
+        setSecQty('');
+      }
+    }, "Mark delivered")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'grid',
         gridTemplateColumns: MARK_COLS,

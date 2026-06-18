@@ -112,8 +112,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     const buckets = {};
     const keyOf = (e)=> groupBy==='sequence' ? e.sequence : groupBy==='area' ? e.area
       : groupBy==='delivery' ? dState(e) : (e.hasKnife?'knife':e.hasStub?'stub':'plain');   // 'attr'
-    visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), ids:[], embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
-      b.embeds++; b.marks.add(e.mark); b.ids.push(e.id); const dl=dState(e); if(dl==='delivered') b.delivered++; else if(dl==='transit') b.transit++; if(e.installed) b.installed++;
+    visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), ids:[], undeliveredIds:[], embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
+      b.embeds++; b.marks.add(e.mark); b.ids.push(e.id); const dl=dState(e); if(dl==='delivered') b.delivered++; else { b.undeliveredIds.push(e.id); } if(dl==='transit') b.transit++; if(e.installed) b.installed++;
       const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, ids:[], embeds:0, delivered:0, transit:0, installed:0 });
       mm.embeds++; mm.ids.push(e.id); if(dl==='delivered') mm.delivered++; else if(dl==='transit') mm.transit++; if(e.installed) mm.installed++; });
     const order = groupBy==='sequence' ? SEQS : groupBy==='area' ? (window.AREAS||['A','B','C','D'])
@@ -125,7 +125,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
       : groupBy==='attr' ? (k==='knife'?T.color.blue:k==='stub'?'#FF9650':T.color.steel300) : T.color.amberHot;
     const keys = Object.keys(buckets).sort((a,b)=>{ const ia=order.indexOf(a), ib=order.indexOf(b);
       return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(String(b),undefined,{numeric:true}); });
-    return keys.map(k=>{ const b=buckets[k]; return { key:k, label:label(k), color:color(k), ids:b.ids, embeds:b.embeds, types:b.marks.size, delivered:b.delivered, transit:b.transit, installed:b.installed,
+    return keys.map(k=>{ const b=buckets[k]; return { key:k, label:label(k), color:color(k), ids:b.ids, undeliveredIds:b.undeliveredIds, embeds:b.embeds, types:b.marks.size, delivered:b.delivered, transit:b.transit, installed:b.installed,
       marksList: Object.values(b.byMark).sort((a,b2)=> String(a.mark).localeCompare(String(b2.mark), undefined, {numeric:true})) }; });
   }, [scoped, groupBy, ql]);
 
@@ -453,6 +453,7 @@ function StatTile({ label, value, sub, accent='#fff' }){
 function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy, onLogReceipt }){
   const [openKey, setOpenKey] = React.useState(null);
   const [secDate, setSecDate] = React.useState(()=> new Date().toISOString().slice(0,10));   // date for "delivered on" + receipt logs
+  const [secQty, setSecQty] = React.useState('');     // partial qty to mark delivered for the open section
   const [logKey, setLogKey] = React.useState(null);   // 'groupKey|mark' of the open per-mark receipt logger
   const [logQty, setLogQty] = React.useState('');
   if(!groups.length) return <Card pad={20} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400 }}>No embeds in scope.</div></Card>;
@@ -516,6 +517,18 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={
                     style={{ flex:'1 1 auto', padding:'7px 8px', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11, letterSpacing:'.02em', whiteSpace:'nowrap',
                       background:'rgba(79,163,242,.16)', border:'1px solid rgba(79,163,242,.5)', color:T.color.blue }}>Installed</button>
                 </div>
+                {/* or mark a partial quantity delivered on the chosen date (marks that many not-yet-delivered pins) */}
+                {(g.undeliveredIds&&g.undeliveredIds.length>0) && (
+                  <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:12, padding:'8px 10px', borderRadius:T.radius.md, background:'rgba(47,214,166,.07)', border:'1px solid rgba(47,214,166,.25)' }}>
+                    <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel300 }}>Or mark</span>
+                    <input type="number" min="1" max={g.undeliveredIds.length} value={secQty} onChange={e=>setSecQty(e.target.value)} placeholder={g.undeliveredIds.length}
+                      style={{ ...inputStyle, width:62, padding:'6px 8px', fontSize:12.5, fontFamily:T.font.mono }} />
+                    <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>of {g.undeliveredIds.length} not delivered, on {window.shortDate(secDate)}</span>
+                    <Btn size="sm" kind="primary" icon="check" style={{ marginLeft:'auto' }}
+                      onClick={()=>{ const avail=g.undeliveredIds||[]; const nn=Math.min(Math.max(1,Math.round(+secQty||avail.length)), avail.length);
+                        if(nn>0 && onBulkDelivery) onBulkDelivery(avail.slice(0,nn), 'delivered', secDate); setSecQty(''); }}>Mark delivered</Btn>
+                  </div>
+                )}
                 <div style={{ display:'grid', gridTemplateColumns:MARK_COLS, gap:8, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400, paddingBottom:7 }}>
                   <span>Mark · {g.types} types</span><span style={{ textAlign:'right' }}>Deliv</span><span style={{ textAlign:'right' }}>Inst</span><span style={{ textAlign:'right' }}>Set</span>
                 </div>
