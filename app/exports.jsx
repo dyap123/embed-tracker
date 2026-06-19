@@ -18,6 +18,31 @@
   function download(name, text, mime){ const b=new Blob([text],{type:mime||'text/plain'}); const u=URL.createObjectURL(b);
     const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
 
+  // ---- styled-xlsx helpers (Webcor green headers, borders, formulas) ----
+  const WEBCOR='6CB33F', BAND='E8F4E0', INK='1B2433', LINE='D6DCE4';
+  function thinB(){ const s={ style:'thin', color:{rgb:LINE} }; return { top:s,bottom:s,left:s,right:s }; }
+  function hdrStyle(){ return { fill:{ patternType:'solid', fgColor:{rgb:WEBCOR} }, font:{ bold:true, color:{rgb:'FFFFFF'}, sz:11 }, alignment:{ horizontal:'center', vertical:'center', wrapText:true }, border:thinB() }; }
+  function bodyStyle(){ return { border:thinB(), font:{ sz:10.5, color:{rgb:INK} }, alignment:{ vertical:'center' } }; }
+  function bandStyle(){ return { fill:{ patternType:'solid', fgColor:{rgb:BAND} }, font:{ bold:true, sz:11, color:{rgb:'2E6B1F'} }, border:thinB() }; }
+  // build a styled worksheet from array-of-arrays. opts: {headerRows, widths, bands:[rowIdx], formulas:[{r,c,f,z}], boldRows:[rowIdx]}
+  function styledWS(aoa, opts={}){
+    const headerRows = opts.headerRows==null?1:opts.headerRows;
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const rng = XLSX.utils.decode_range(ws['!ref']);
+    const bandSet = new Set(opts.bands||[]); const boldSet = new Set(opts.boldRows||[]);
+    for(let r=rng.s.r;r<=rng.e.r;r++) for(let c=rng.s.c;c<=rng.e.c;c++){
+      const addr=XLSX.utils.encode_cell({r,c}); let cell=ws[addr]; if(!cell) cell=ws[addr]={ t:'s', v:'' };
+      if(r<headerRows) cell.s=hdrStyle();
+      else if(bandSet.has(r)) cell.s=bandStyle();
+      else { cell.s=bodyStyle(); if(boldSet.has(r)) cell.s={ ...cell.s, font:{ ...cell.s.font, bold:true } }; }
+    }
+    (opts.formulas||[]).forEach(({r,c,f,z})=>{ const a=XLSX.utils.encode_cell({r,c}); const prev=ws[a]&&ws[a].s; ws[a]={ t:'n', f, ...(z?{z}:{}), s:prev||bodyStyle() }; });
+    if(opts.widths) ws['!cols']=opts.widths.map(w=>({ wch:w }));
+    ws['!views']=[{ state:'frozen', ySplit:headerRows, xSplit:0, topLeftCell:XLSX.utils.encode_cell({ r:headerRows, c:0 }) }];
+    return ws;
+  }
+  const colL=(c)=>XLSX.utils.encode_col(c);   // 0->A
+
   // ---- shared derivations ----
   function deliveryOf(e){ const ds = window.deliveryState ? window.deliveryState(e) : (e.installed?'delivered':(e.delivery||'none'));
     return (window.DELIVERY && window.DELIVERY[ds]) ? window.DELIVERY[ds].label : ds; }
@@ -93,12 +118,49 @@
     if (kind==='xlsx'){
       if(!haveXLSX()) { alert('Excel library not loaded'); return; }
       const wb=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sum), 'Summary');
-      if(seqSum) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(seqSum), 'By Sequence');
-      if(delivSum) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(delivSum), 'Delivery by Sequence');
-      if(mtx) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mtx.head, ...mtx.body, mtx.totalRow]), 'Mark x Sequence');
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Embeds');
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dates.length?dates:[{Date:'—',Installed:0,Cumulative:0}]), 'By Date');
+      const AREAS=window.AREAS||['A','B','C','D']; const SL=window.seqLabel||(s=>'Seq '+s);
+      const dS=window.deliveryState||(e=>e.installed?'delivered':(e.delivery||'none'));
+      const tot=embeds.length, instN=embeds.filter(e=>e.installed).length, delivN=embeds.filter(e=>dS(e)==='delivered').length, openR=embeds.filter(e=>e.rfi&&e.rfi.status==='Open').length;
+
+      // Summary (formula-driven Remaining / % Complete)
+      const sumAOA=[['Metric','Value'],['Total embeds',tot],['Delivered',delivN],['Installed',instN],['Remaining',''],['% Complete',''],['Open RFIs',openR]];
+      XLSX.utils.book_append_sheet(wb, styledWS(sumAOA,{ widths:[20,14], formulas:[{r:4,c:1,f:'B2-B4'},{r:5,c:1,f:'B4/B2',z:'0%'}] }), 'Summary');
+
+      // Install by Sequence
+      if(seqSum){ const body=seqSum.map(r=>[r.Sequence,r.Placed,r.Installed,'','']); const fm=[];
+        body.forEach((_,i)=>{ const R=i+2; fm.push({r:i+1,c:3,f:`B${R}-C${R}`}); fm.push({r:i+1,c:4,f:`IF(B${R}=0,0,C${R}/B${R})`,z:'0%'}); });
+        XLSX.utils.book_append_sheet(wb, styledWS([['Sequence','Placed','Installed','Remaining','% Complete'],...body],{ widths:[16,12,12,12,14], formulas:fm, boldRows:[body.length] }), 'Install by Sequence'); }
+      // Delivery by Sequence
+      if(delivSum){ const body=delivSum.map(r=>[r.Sequence,r.Placed,r.Delivered,r['On the way'],r['Not delivered'],'']); const fm=[];
+        body.forEach((_,i)=>{ const R=i+2; fm.push({r:i+1,c:5,f:`IF(B${R}=0,0,C${R}/B${R})`,z:'0%'}); });
+        XLSX.utils.book_append_sheet(wb, styledWS([['Sequence','Placed','Delivered','On the way','Not delivered','% Delivered'],...body],{ widths:[16,12,12,12,14,14], formulas:fm, boldRows:[body.length] }), 'Delivery by Sequence'); }
+
+      // Schedule by Sequence — grouped with green section bands
+      if(window.embedsBySequence){ const { seqs, marks } = window.embedsBySequence(embeds);
+        const aoa=[['Mark','Description','Qty','Installed','Status']]; const bands=[];
+        seqs.forEach(s=>{ const ms=marks.filter(m=>(m.seq[s]||{}).pinned>0); if(!ms.length) return;
+          bands.push(aoa.length); aoa.push(['SEQUENCE '+SL(s),'','','','']);
+          ms.forEach(m=>{ const c=m.seq[s]||{pinned:0,inst:0}; aoa.push([m.mark, m.desc||'Anchor rod', c.pinned, c.inst, c.pinned>0&&c.inst>=c.pinned?'Complete':(c.inst>0?'In progress':'Planned')]); }); });
+        XLSX.utils.book_append_sheet(wb, styledWS(aoa,{ widths:[12,28,8,10,14], bands }), 'Schedule by Sequence'); }
+
+      // Area Rollup
+      const areaAOA=[['Area','Total','Installed','Remaining','% Complete']];
+      AREAS.forEach(a=>{ const list=embeds.filter(e=>e.area===a); areaAOA.push([a, list.length, list.filter(e=>e.installed).length, '', '']); });
+      const afm=[]; AREAS.forEach((_,i)=>{ const R=i+2; afm.push({r:i+1,c:3,f:`B${R}-C${R}`}); afm.push({r:i+1,c:4,f:`IF(B${R}=0,0,C${R}/B${R})`,z:'0%'}); });
+      XLSX.utils.book_append_sheet(wb, styledWS(areaAOA,{ widths:[10,12,12,12,14], formulas:afm }), 'Area Rollup');
+
+      // Detailed Tracker (per pin, TRUE/FALSE)
+      const detHead=['Mark','Type','Area','Sequence','Delivered','Installed','Status','Received','Installed On','Installed By','RFI'];
+      const detBody=embeds.slice().sort((a,b)=>String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true})).map(e=>[
+        e.mark||'', e.typeLabel||'Anchor rod', e.area||'', SL(e.sequence||''), dS(e)==='delivered', !!e.installed,
+        e.installed?'Installed':(dS(e)==='delivered'?'Delivered':dS(e)==='transit'?'On the way':'Not delivered'),
+        (window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', e.installedAt||'', e.installedBy||'', e.rfi?e.rfi.number:'' ]);
+      XLSX.utils.book_append_sheet(wb, styledWS([detHead,...detBody],{ widths:[10,15,7,12,11,11,13,13,13,16,9] }), 'Detailed Tracker');
+
+      // Install Log
+      const ilBody=embeds.filter(e=>e.installed).sort((a,b)=>(a.installedAt||'').localeCompare(b.installedAt||'')).map(e=>[e.area||'',e.mark||'',e.grid||'',true,e.installedAt||'',e.installedBy||'']);
+      XLSX.utils.book_append_sheet(wb, styledWS([['Area','Mark','Grid','Installed','Date Installed','Installed By'],...(ilBody.length?ilBody:[['','','',false,'','']])],{ widths:[8,10,10,11,15,16] }), 'Install Log');
+
       XLSX.writeFile(wb, fname+'.xlsx');
       return fname+'.xlsx';
     }
@@ -163,7 +225,30 @@
     if (kind==='csv'){ download(fname+'.csv', csvOf(data.length?data:[{Mark:'—'}]), 'text/csv'); return fname+'.csv'; }
     if (kind==='xlsx'){
       if(!haveXLSX()) { alert('Excel library not loaded'); return; }
-      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length?data:[{Mark:'—'}]), 'Inventory');
+      const wb=XLSX.utils.book_new(); const SL=window.seqLabel||(s=>'Seq '+s);
+      const totQty=rows.reduce((a,r)=>a+(+r.qty||0),0), totDeliv=rows.reduce((a,r)=>a+(+r.delivered||0),0), totInst=rows.reduce((a,r)=>a+(+r.inst||0),0);
+
+      // Summary
+      XLSX.utils.book_append_sheet(wb, styledWS([['Metric','Value'],['Embed types (marks)',rows.length],['Total qty',totQty],['Delivered',totDeliv],['Installed',totInst],['Remaining',''],['% Complete','']],
+        { widths:[22,14], formulas:[{r:5,c:1,f:'B3-B5'},{r:6,c:1,f:'IF(B3=0,0,B5/B3)',z:'0%'}] }), 'Summary');
+
+      // Inventory (per mark, Remaining + % as formulas, TOTAL row with SUM)
+      const invBody=rows.map(r=>[r.id, r.desc||'', +r.qty||0, +r.delivered||0, +r.inst||0, '', '', +r.received||0, r.supplier||'']);
+      const ifm=[]; invBody.forEach((_,i)=>{ const R=i+2; ifm.push({r:i+1,c:5,f:`C${R}-E${R}`}); ifm.push({r:i+1,c:6,f:`IF(C${R}=0,0,E${R}/C${R})`,z:'0%'}); });
+      const dataEnd=invBody.length; invBody.push(['TOTAL','','','','','','','','']); const tRow=dataEnd+1;
+      [2,3,4,5,7].forEach(c=> ifm.push({ r:tRow, c, f:`SUM(${colL(c)}2:${colL(c)}${dataEnd+1})` }));
+      XLSX.utils.book_append_sheet(wb, styledWS([['Mark','Description','Qty','Delivered','Installed','Remaining','% Complete','Received','Supplier'],...invBody],
+        { widths:[10,26,8,11,11,11,12,11,16], formulas:ifm, boldRows:[tRow] }), 'Inventory');
+
+      // Receiving Log (flatten each mark's receipts)
+      const recs=[]; rows.forEach(r=> (r.receipts||[]).forEach(rc=> recs.push([rc.date||'', r.id, r.desc||'Anchor rod', +rc.qty||0, rc.by||''])));
+      recs.sort((a,b)=>String(b[0]).localeCompare(String(a[0])));
+      XLSX.utils.book_append_sheet(wb, styledWS([['Date Received','Mark','Type','Qty','Logged By'],...(recs.length?recs:[['','','',0,'']])],{ widths:[14,10,24,8,16] }), 'Receiving Log');
+
+      // By Sequence (mark × sequence placed counts)
+      const seqBody=rows.map(r=>[r.id, ...SQ.map(s=>((r.seq&&r.seq[s])||{}).pinned||0), (r.pinned!=null?r.pinned:0)]);
+      XLSX.utils.book_append_sheet(wb, styledWS([['Mark',...SQ.map(SL),'Total'],...seqBody],{ widths:[10,...SQ.map(()=>10),10] }), 'By Sequence');
+
       XLSX.writeFile(wb, fname+'.xlsx'); return fname+'.xlsx';
     }
     const JsPDF=jsPDFctor(); if(!JsPDF){ alert('PDF library not loaded'); return; }

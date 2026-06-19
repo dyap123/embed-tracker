@@ -618,7 +618,8 @@ function MapScreen({
       y0: f.fy,
       x1: f.fx,
       y1: f.fy,
-      additive: e.shiftKey || e.metaKey || e.ctrlKey
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      zoneId: manager ? zoneAtFrac(f.fx, f.fy) : null
     };
     setMarq({
       x: f.fx,
@@ -756,17 +757,24 @@ function MapScreen({
       return;
     }
     if (marquee.current) {
-      const r = normZone(marquee.current);
-      const add = marquee.current.additive;
+      const mq = marquee.current;
+      const r = normZone(mq);
+      const add = mq.additive;
       marquee.current = null;
       setMarq(null);
       if (r.w < 0.006 && r.h < 0.006) {
-        if (!add) {
+        // a click, not a drag
+        if (mq.zoneId) {
+          setSelZone(mq.zoneId);
+          setReshape(false);
+          setSelPins([]);
+          setSelId(null);
+        } // click on a zone → select it (Edit/Info/Reshape bar)
+        else if (!add) {
           setSelPins([]);
           setSelId(null);
         }
-      } // empty click → clear
-      else {
+      } else {
         const ids = visible.filter(em => em.nx >= r.x && em.nx <= r.x + r.w && em.ny >= r.y && em.ny <= r.y + r.h).map(em => em.id);
         setSelPins(prev => add ? Array.from(new Set([...prev, ...ids])) : ids);
         setSelId(null);
@@ -1159,6 +1167,14 @@ function MapScreen({
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z => z.id === selZone) || null;
   const pickSet = new Set(selPins);
+  // topmost visible zone containing a normalized point (same filter as the rendered polygons)
+  function zoneAtFrac(fx, fy) {
+    const vis = renderZones.filter(z => layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z)));
+    for (let i = vis.length - 1; i >= 0; i--) {
+      if (pointInPoly(fx, fy, zonePts(vis[i]))) return vis[i].id;
+    }
+    return null;
+  }
   // pour order #: WCG-Pours zones numbered by date (then created)
   const pourNo = React.useMemo(() => {
     const ps = zones.filter(z => zoneLayer(z) === 'WCG Pours').slice().sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));

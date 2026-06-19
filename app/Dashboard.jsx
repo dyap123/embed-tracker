@@ -36,6 +36,7 @@ function Dashboard({ embeds, zones=[], isPhone }){
             </select>
           </div>
           <Btn kind="ghost" size="sm" icon="export" onClick={()=>exp('csv')}>CSV</Btn>
+          <Btn kind="ghost" size="sm" icon="export" onClick={()=>exp('xlsx')}>Excel</Btn>
           <Btn kind="navy" size="sm" icon="export" onClick={()=>exp('pdf')}>PDF</Btn>
         </Header>
 

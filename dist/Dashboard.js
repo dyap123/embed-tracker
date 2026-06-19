@@ -118,6 +118,11 @@ function Dashboard({
     icon: "export",
     onClick: () => exp('csv')
   }, "CSV"), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    size: "sm",
+    icon: "export",
+    onClick: () => exp('xlsx')
+  }, "Excel"), /*#__PURE__*/React.createElement(Btn, {
     kind: "navy",
     size: "sm",
     icon: "export",

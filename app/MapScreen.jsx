@@ -222,7 +222,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const hit = pinAt(x,y);
     if (hit){ pinPointerDown(e, hit); return; }
     if (tool==='pan'){ touched.current=true; drag.current={ x, y, tx:view.tx, ty:view.ty }; return; }
-    marquee.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy, additive:e.shiftKey||e.metaKey||e.ctrlKey };
+    marquee.current={ x0:f.fx, y0:f.fy, x1:f.fx, y1:f.fy, additive:e.shiftKey||e.metaKey||e.ctrlKey, zoneId: manager?zoneAtFrac(f.fx,f.fy):null };
     setMarq({ x:f.fx, y:f.fy, w:0, h:0 });
   }
   function onPointerMove(e){
@@ -252,8 +252,10 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     if (sdrag.current){ commitLive(sdrag.current.id); sdrag.current=null; return; }
     if (drawing.current){ const z=normZone(drawing.current); drawing.current=null; setDraft(null);
       if(z.w>0.02&&z.h>0.02){ setEditZone({ ...z, area:'B', pour:'2', _new:true }); } setDrawMode('off'); return; }
-    if (marquee.current){ const r=normZone(marquee.current); const add=marquee.current.additive; marquee.current=null; setMarq(null);
-      if (r.w<0.006 && r.h<0.006){ if(!add){ setSelPins([]); setSelId(null); } }      // empty click → clear
+    if (marquee.current){ const mq=marquee.current; const r=normZone(mq); const add=mq.additive; marquee.current=null; setMarq(null);
+      if (r.w<0.006 && r.h<0.006){                                          // a click, not a drag
+        if (mq.zoneId){ setSelZone(mq.zoneId); setReshape(false); setSelPins([]); setSelId(null); }   // click on a zone → select it (Edit/Info/Reshape bar)
+        else if(!add){ setSelPins([]); setSelId(null); } }
       else { const ids=visible.filter(em=> em.nx>=r.x&&em.nx<=r.x+r.w&&em.ny>=r.y&&em.ny<=r.y+r.h).map(em=>em.id);
         setSelPins(prev=> add ? Array.from(new Set([...prev,...ids])) : ids); setSelId(null); }
       return; }
@@ -366,6 +368,12 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z=>z.id===selZone) || null;
   const pickSet = new Set(selPins);
+  // topmost visible zone containing a normalized point (same filter as the rendered polygons)
+  function zoneAtFrac(fx,fy){
+    const vis = renderZones.filter(z=>layerVis[zoneLayer(z)] && hasGeom(z) && (showBackfill || !isBackfillPour(z)));
+    for(let i=vis.length-1;i>=0;i--){ if(pointInPoly(fx,fy, zonePts(vis[i]))) return vis[i].id; }
+    return null;
+  }
   // pour order #: WCG-Pours zones numbered by date (then created)
   const pourNo = React.useMemo(()=>{
     const ps = zones.filter(z=>zoneLayer(z)==='WCG Pours').slice()

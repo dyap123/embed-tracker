@@ -22,19 +22,24 @@ function neededInfo(iso){
 function recvList(r){ const x=r&&r.receipts; if(!x) return []; const a=Array.isArray(x)?x:Object.values(x); return a.filter(e=>e&&e.qty!=null); }
 function recvTotal(r){ return recvList(r).reduce((s,e)=>s+(+e.qty||0),0); }
 function recvLast(r){ const d=recvList(r).map(e=>e.date).filter(Boolean).sort(); return d.length?d[d.length-1]:''; }
-function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, userName, seqMeta={}, onSetSeqNeeded }){
+function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, userName, seqMeta={}, onSetSeqNeeded, wcgPours=[] }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
-  const [seqFilter, setSeqFilter] = React.useState('all');   // scope counts + check-off to one sequence
+  const [seqMode, setSeqMode] = React.useState('pwjv');      // 'pwjv' (embed.sequence) | 'wcg' (which WCG pour it sits in)
+  const [seqFilter, setSeqFilter] = React.useState('all');   // scope counts + check-off to one sequence / pour
   const [delivFilter, setDelivFilter] = React.useState('all');  // scope to a delivery status (incoming / awaiting / delivered)
   const [sortBy, setSortBy] = React.useState('mark');        // 'mark' | 'recvDesc' | 'recvAsc'
   const [viewMode, setViewMode] = React.useState('table');   // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence');  // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
+  const [deadlinesOpen, setDeadlinesOpen] = React.useState(false);   // sequences/deadlines panel
   const [adding, setAdding] = React.useState(false);
   const [newMark, setNewMark] = React.useState('');
   const [newDesc, setNewDesc] = React.useState('');
   const dState = window.deliveryState;
 
+  // sequence matcher (PWJV by embed.sequence, WCG by which pour zone the embed sits in)
+  const matchSeq = (e)=> seqFilter==='all' ? true : (seqMode==='wcg' ? e.wcgPour===seqFilter : e.sequence===seqFilter);
+  const seqLabelOf = (v)=> seqMode==='wcg' ? ((wcgPours.find(w=>w.id===v)||{}).label||v) : seqLabel(v);
   // delivery-status matcher: incoming = on the way, awaiting = not delivered yet, outstanding = anything not fully delivered
   const matchDeliv = (e)=> delivFilter==='all' ? true
     : delivFilter==='transit'     ? dState(e)==='transit'
@@ -44,7 +49,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     : true;
   const anyFilter = seqFilter!=='all' || delivFilter!=='all';
   // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
-  const scoped = embeds.filter(e=> (seqFilter==='all'||e.sequence===seqFilter) && matchDeliv(e));
+  const scoped = embeds.filter(e=> matchSeq(e) && matchDeliv(e));
 
   // headline stats for the scope — "how many embeds / types in the selected region"
   const stats = { embeds: scoped.length, types: new Set(scoped.map(e=>e.mark).filter(Boolean)).size,
@@ -52,11 +57,12 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     transit: scoped.filter(e=>dState(e)==='transit').length,
     installed: scoped.filter(e=>e.installed).length };
 
-  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar)
-  const seqNeeded = seqFilter!=='all' ? ((seqMeta[seqFilter]||{}).needed||'') : '';
+  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar). WCG defaults to its pour date.
+  const curWcg = seqMode==='wcg' && seqFilter!=='all' ? wcgPours.find(w=>w.id===seqFilter) : null;
+  const seqNeeded = seqFilter==='all' ? '' : (((seqMeta[seqFilter]||{}).needed) || (curWcg?curWcg.date:'') || '');
   const seqNi = neededInfo(seqNeeded);
   const sStat = (()=>{ if(seqFilter==='all') return null; let none=0,transit=0,deliv=0;
-    embeds.forEach(e=>{ if(e.sequence!==seqFilter) return; const d=dState(e); if(d==='delivered')deliv++; else if(d==='transit')transit++; else none++; });
+    embeds.forEach(e=>{ if(!matchSeq(e)) return; const d=dState(e); if(d==='delivered')deliv++; else if(d==='transit')transit++; else none++; });
     return { none, transit, deliv }; })();
 
   // build a row per mark from the master (types) + live pins (counts respect the sequence filter)
@@ -107,7 +113,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
       delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:recvTotal(r), receivedOn:recvLast(r)||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
-      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq }; });
+      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq, receipts:recvList(r) }; });
     window.exportInventory(data, kind, SEQS); }
 
   // ---- summary view: group the in-scope pins and tally embeds / types / delivered / installed ----
@@ -136,14 +142,16 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   return (
     <div style={{ position:'absolute', inset:0, overflowY:'auto' }}>
       <div className="ey-fade" style={{ maxWidth:1080, margin:'0 auto', padding:isPhone?'18px 14px 90px':'28px 30px 60px' }}>
-        <Header title="Inventory" sub={`By embed type · ${rows.length} marks${seqFilter!=='all'?' · '+seqLabel(seqFilter):''}${delivFilter!=='all'?' · '+DELIV_FILTERS.find(f=>f.value===delivFilter).label:''}`}>
-          <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(seqFilter!=='all'?'rgba(126,120,240,.5)':T.color.line),
-            borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Filter quantities + check-off to one pour sequence">
+        <Header title="Inventory" sub={`By embed type · ${rows.length} marks${seqFilter!=='all'?' · '+(seqMode==='wcg'?'WCG ':'')+seqLabelOf(seqFilter):''}${delivFilter!=='all'?' · '+DELIV_FILTERS.find(f=>f.value===delivFilter).label:''}`}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(0,0,0,.3)', border:'1px solid '+(seqFilter!=='all'?'rgba(126,120,240,.5)':T.color.line),
+            borderRadius:T.radius.md, padding:'0 6px 0 8px', height:32 }} title="Filter to a PWJV sequence or a WCG pour">
             <Icon name="filter" size={13} style={{ color:seqFilter!=='all'?'#A6A0FF':T.color.steel400 }} />
+            <Segmented size="sm" value={seqMode} onChange={m=>{ setSeqMode(m); setSeqFilter('all'); }} options={[{value:'pwjv',label:'PWJV'},{value:'wcg',label:'WCG'}]} />
             <select value={seqFilter} onChange={e=>setSeqFilter(e.target.value)}
-              style={{ ...SELECT_STYLE, color:seqFilter!=='all'?'#fff':T.color.steel200 }}>
-              <option value="all" style={SELECT_OPT}>All sequences</option>
-              {SEQS.map(s=><option key={s} value={s} style={SELECT_OPT}>{seqLabel(s)}</option>)}
+              style={{ ...SELECT_STYLE, color:seqFilter!=='all'?'#fff':T.color.steel200, maxWidth:150 }}>
+              <option value="all" style={SELECT_OPT}>{seqMode==='wcg'?'All WCG pours':'All sequences'}</option>
+              {(seqMode==='wcg' ? wcgPours.map(w=>[w.id,w.label]) : SEQS.map(s=>[s,seqLabel(s)])).map(([v,l])=>
+                <option key={v} value={v} style={SELECT_OPT}>{l}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(delivFilter!=='all'?'rgba(245,194,75,.55)':T.color.line),
@@ -173,9 +181,11 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
               <option value="recvAsc" style={SELECT_OPT}>Sort: Received (oldest)</option>
             </select>
           </div>
+          <Btn kind={deadlinesOpen?'primary':'ghost'} size="sm" icon="calendar" onClick={()=>setDeadlinesOpen(o=>!o)} title="Needed-by dates for every sequence">Deadlines</Btn>
           {canEdit && <Btn kind="ghost" size="sm" icon="bolt" onClick={()=>onSyncQtys && onSyncQtys()} title="Set every type's quantity to its current placed count on the plan">Sync to map</Btn>}
           {canEdit && <Btn kind="ghost" size="sm" icon="plus" onClick={()=>setAdding(a=>!a)}>Add type</Btn>}
           <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('csv')}>CSV</Btn>
+          <Btn kind="ghost" size="sm" icon="export" onClick={()=>expInv('xlsx')}>Excel</Btn>
           <Btn kind="navy" size="sm" icon="export" onClick={()=>expInv('pdf')}>PDF</Btn>
         </Header>
 
@@ -192,13 +202,15 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
           </Card>
         )}
 
+        {deadlinesOpen && <SequencesPanel embeds={embeds} seqMeta={seqMeta} onSetSeqNeeded={onSetSeqNeeded} wcgPours={wcgPours} isPhone={isPhone} />}
+
         {/* sequence "needed by" bar — deadline + what's still needed, when one sequence is selected */}
         {seqFilter!=='all' && sStat && (
           <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginTop:16, padding:'12px 16px', borderRadius:T.radius.lg,
             background:'rgba(126,120,240,.07)', border:'1px solid '+(seqNi?seqNi.col+'66':T.color.line) }}>
             <div style={{ display:'flex', alignItems:'center', gap:9 }}>
               <Icon name="calendar" size={16} style={{ color:T.color.amberHot }} />
-              <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16 }}>{seqLabel(seqFilter)}</span>
+              <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16 }}>{seqMode==='wcg'?'WCG · ':''}{seqLabelOf(seqFilter)}</span>
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <span style={{ fontFamily:T.font.mono, fontSize:10, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 }}>Needed by</span>
@@ -452,6 +464,43 @@ function StatTile({ label, value, sub, accent='#fff' }){
       <div style={{ fontFamily:T.font.display, fontWeight:800, fontSize:26, lineHeight:1, marginTop:4, color:accent }}>{value}</div>
       <div style={{ fontFamily:T.font.mono, fontSize:9.5, color:T.color.steel400, marginTop:3 }}>{sub}</div>
     </div>
+  );
+}
+
+/* Deadlines panel — every sequence (PWJV + WCG pour) with an editable needed-by date, days-left, and what's outstanding */
+function SequencesPanel({ embeds, seqMeta={}, onSetSeqNeeded, wcgPours=[], isPhone }){
+  const dS = window.deliveryState;
+  const SEQS = window.SEQUENCES || ['1','2','3','4'];
+  const count = (pred)=>{ let total=0,out=0,inst=0; embeds.forEach(e=>{ if(!pred(e)) return; total++; if(dS(e)!=='delivered') out++; if(e.installed) inst++; }); return { total, out, inst }; };
+  const rows = [
+    ...SEQS.map(s=>({ key:s, label:seqLabel(s), kind:'PWJV', defDate:'', ...count(e=>e.sequence===s) })),
+    ...wcgPours.map(w=>({ key:w.id, label:w.label, kind:'WCG', defDate:w.date||'', ...count(e=>e.wcgPour===w.id) })),
+  ];
+  const COLS = isPhone ? '1fr 150px' : '74px minmax(0,1fr) 176px 70px 84px 96px';
+  const head = { fontFamily:T.font.mono, fontSize:9, letterSpacing:'.1em', textTransform:'uppercase', color:T.color.steel400 };
+  return (
+    <Card pad={0} glow style={{ marginTop:14 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 18px', borderBottom:'1px solid '+T.color.line }}>
+        <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.03em' }}>Sequence deadlines</span>
+        <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>needed-by per sequence · WCG defaults to its pour date</span>
+      </div>
+      {!isPhone && (
+        <div style={{ display:'grid', gridTemplateColumns:COLS, gap:12, padding:'9px 18px', borderBottom:'1px solid '+T.color.lineSoft, ...head }}>
+          <span>Layer</span><span>Sequence · pour</span><span>Needed by</span><span style={{ textAlign:'right' }}>Days</span><span style={{ textAlign:'right' }}>Not deliv</span><span style={{ textAlign:'right' }}>Installed</span>
+        </div>
+      )}
+      {rows.map((r,i)=>{ const needed=((seqMeta[r.key]||{}).needed) || r.defDate || ''; const ni=neededInfo(needed);
+        return (
+          <div key={r.kind+r.key} style={{ display:'grid', gridTemplateColumns:COLS, gap:12, padding:isPhone?'11px 14px':'10px 18px', alignItems:'center', borderBottom: i<rows.length-1?'1px solid '+T.color.lineSoft:'none' }}>
+            <Badge color={r.kind==='WCG'?T.color.cyan:T.color.amberHot} style={{ fontSize:9 }}>{r.kind}</Badge>
+            <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:14.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.label}{r.total?<span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}> · {r.total} embeds</span>:null}</span>
+            <div style={{ width:170 }}><DatePopover value={needed} onChange={d=>onSetSeqNeeded && onSetSeqNeeded(r.key, d)} /></div>
+            {!isPhone && <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:12, fontWeight:700, color:ni?ni.col:T.color.steel600 }}>{ni?ni.lbl:'—'}</span>}
+            {!isPhone && <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:13, color:r.out?T.color.red:T.color.steel600 }}>{r.out}</span>}
+            {!isPhone && <span style={{ textAlign:'right', fontFamily:T.font.mono, fontSize:13, color:T.color.green }}>{r.inst}<span style={{ color:T.color.steel500 }}>/{r.total}</span></span>}
+          </div>
+        ); })}
+    </Card>
   );
 }
 

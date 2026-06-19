@@ -81,25 +81,31 @@ function Inventory({
   canEdit,
   userName,
   seqMeta = {},
-  onSetSeqNeeded
+  onSetSeqNeeded,
+  wcgPours = []
 }) {
   const [open, setOpen] = React.useState(null); // expanded mark
   const [q, setQ] = React.useState(''); // search
-  const [seqFilter, setSeqFilter] = React.useState('all'); // scope counts + check-off to one sequence
+  const [seqMode, setSeqMode] = React.useState('pwjv'); // 'pwjv' (embed.sequence) | 'wcg' (which WCG pour it sits in)
+  const [seqFilter, setSeqFilter] = React.useState('all'); // scope counts + check-off to one sequence / pour
   const [delivFilter, setDelivFilter] = React.useState('all'); // scope to a delivery status (incoming / awaiting / delivered)
   const [sortBy, setSortBy] = React.useState('mark'); // 'mark' | 'recvDesc' | 'recvAsc'
   const [viewMode, setViewMode] = React.useState('table'); // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence'); // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
+  const [deadlinesOpen, setDeadlinesOpen] = React.useState(false); // sequences/deadlines panel
   const [adding, setAdding] = React.useState(false);
   const [newMark, setNewMark] = React.useState('');
   const [newDesc, setNewDesc] = React.useState('');
   const dState = window.deliveryState;
 
+  // sequence matcher (PWJV by embed.sequence, WCG by which pour zone the embed sits in)
+  const matchSeq = e => seqFilter === 'all' ? true : seqMode === 'wcg' ? e.wcgPour === seqFilter : e.sequence === seqFilter;
+  const seqLabelOf = v => seqMode === 'wcg' ? (wcgPours.find(w => w.id === v) || {}).label || v : seqLabel(v);
   // delivery-status matcher: incoming = on the way, awaiting = not delivered yet, outstanding = anything not fully delivered
   const matchDeliv = e => delivFilter === 'all' ? true : delivFilter === 'transit' ? dState(e) === 'transit' : delivFilter === 'none' ? dState(e) === 'none' : delivFilter === 'delivered' ? dState(e) === 'delivered' : delivFilter === 'outstanding' ? dState(e) !== 'delivered' : true;
   const anyFilter = seqFilter !== 'all' || delivFilter !== 'all';
   // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
-  const scoped = embeds.filter(e => (seqFilter === 'all' || e.sequence === seqFilter) && matchDeliv(e));
+  const scoped = embeds.filter(e => matchSeq(e) && matchDeliv(e));
 
   // headline stats for the scope — "how many embeds / types in the selected region"
   const stats = {
@@ -110,8 +116,9 @@ function Inventory({
     installed: scoped.filter(e => e.installed).length
   };
 
-  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar)
-  const seqNeeded = seqFilter !== 'all' ? (seqMeta[seqFilter] || {}).needed || '' : '';
+  // per-sequence "needed by" deadline + what's still needed (drives the sequence bar). WCG defaults to its pour date.
+  const curWcg = seqMode === 'wcg' && seqFilter !== 'all' ? wcgPours.find(w => w.id === seqFilter) : null;
+  const seqNeeded = seqFilter === 'all' ? '' : (seqMeta[seqFilter] || {}).needed || (curWcg ? curWcg.date : '') || '';
   const seqNi = neededInfo(seqNeeded);
   const sStat = (() => {
     if (seqFilter === 'all') return null;
@@ -119,7 +126,7 @@ function Inventory({
       transit = 0,
       deliv = 0;
     embeds.forEach(e => {
-      if (e.sequence !== seqFilter) return;
+      if (!matchSeq(e)) return;
       const d = dState(e);
       if (d === 'delivered') deliv++;else if (d === 'transit') transit++;else none++;
     });
@@ -285,7 +292,8 @@ function Inventory({
         plate: r.plate,
         len: r.len,
         supplier: r.supplier,
-        seq
+        seq,
+        receipts: recvList(r)
       };
     });
     window.exportInventory(data, kind, SEQS);
@@ -376,40 +384,55 @@ function Inventory({
     }
   }, /*#__PURE__*/React.createElement(Header, {
     title: "Inventory",
-    sub: `By embed type · ${rows.length} marks${seqFilter !== 'all' ? ' · ' + seqLabel(seqFilter) : ''}${delivFilter !== 'all' ? ' · ' + DELIV_FILTERS.find(f => f.value === delivFilter).label : ''}`
+    sub: `By embed type · ${rows.length} marks${seqFilter !== 'all' ? ' · ' + (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter) : ''}${delivFilter !== 'all' ? ' · ' + DELIV_FILTERS.find(f => f.value === delivFilter).label : ''}`
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
-      gap: 7,
+      gap: 6,
       background: 'rgba(0,0,0,.3)',
       border: '1px solid ' + (seqFilter !== 'all' ? 'rgba(126,120,240,.5)' : T.color.line),
       borderRadius: T.radius.md,
-      padding: '0 8px',
+      padding: '0 6px 0 8px',
       height: 32
     },
-    title: "Filter quantities + check-off to one pour sequence"
+    title: "Filter to a PWJV sequence or a WCG pour"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "filter",
     size: 13,
     style: {
       color: seqFilter !== 'all' ? '#A6A0FF' : T.color.steel400
     }
+  }), /*#__PURE__*/React.createElement(Segmented, {
+    size: "sm",
+    value: seqMode,
+    onChange: m => {
+      setSeqMode(m);
+      setSeqFilter('all');
+    },
+    options: [{
+      value: 'pwjv',
+      label: 'PWJV'
+    }, {
+      value: 'wcg',
+      label: 'WCG'
+    }]
   }), /*#__PURE__*/React.createElement("select", {
     value: seqFilter,
     onChange: e => setSeqFilter(e.target.value),
     style: {
       ...SELECT_STYLE,
-      color: seqFilter !== 'all' ? '#fff' : T.color.steel200
+      color: seqFilter !== 'all' ? '#fff' : T.color.steel200,
+      maxWidth: 150
     }
   }, /*#__PURE__*/React.createElement("option", {
     value: "all",
     style: SELECT_OPT
-  }, "All sequences"), SEQS.map(s => /*#__PURE__*/React.createElement("option", {
-    key: s,
-    value: s,
+  }, seqMode === 'wcg' ? 'All WCG pours' : 'All sequences'), (seqMode === 'wcg' ? wcgPours.map(w => [w.id, w.label]) : SEQS.map(s => [s, seqLabel(s)])).map(([v, l]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v,
     style: SELECT_OPT
-  }, seqLabel(s))))), /*#__PURE__*/React.createElement("div", {
+  }, l)))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -532,7 +555,13 @@ function Inventory({
   }, "Sort: Received (newest)"), /*#__PURE__*/React.createElement("option", {
     value: "recvAsc",
     style: SELECT_OPT
-  }, "Sort: Received (oldest)"))), canEdit && /*#__PURE__*/React.createElement(Btn, {
+  }, "Sort: Received (oldest)"))), /*#__PURE__*/React.createElement(Btn, {
+    kind: deadlinesOpen ? 'primary' : 'ghost',
+    size: "sm",
+    icon: "calendar",
+    onClick: () => setDeadlinesOpen(o => !o),
+    title: "Needed-by dates for every sequence"
+  }, "Deadlines"), canEdit && /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
     icon: "bolt",
@@ -549,6 +578,11 @@ function Inventory({
     icon: "export",
     onClick: () => expInv('csv')
   }, "CSV"), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    size: "sm",
+    icon: "export",
+    onClick: () => expInv('xlsx')
+  }, "Excel"), /*#__PURE__*/React.createElement(Btn, {
     kind: "navy",
     size: "sm",
     icon: "export",
@@ -618,7 +652,13 @@ function Inventory({
       setNewMark('');
       setNewDesc('');
     }
-  }, "Cancel")), seqFilter !== 'all' && sStat && /*#__PURE__*/React.createElement("div", {
+  }, "Cancel")), deadlinesOpen && /*#__PURE__*/React.createElement(SequencesPanel, {
+    embeds: embeds,
+    seqMeta: seqMeta,
+    onSetSeqNeeded: onSetSeqNeeded,
+    wcgPours: wcgPours,
+    isPhone: isPhone
+  }), seqFilter !== 'all' && sStat && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -648,7 +688,7 @@ function Inventory({
       fontWeight: 700,
       fontSize: 16
     }
-  }, seqLabel(seqFilter))), /*#__PURE__*/React.createElement("div", {
+  }, seqMode === 'wcg' ? 'WCG · ' : '', seqLabelOf(seqFilter))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -1584,6 +1624,172 @@ function StatTile({
       marginTop: 3
     }
   }, sub));
+}
+
+/* Deadlines panel — every sequence (PWJV + WCG pour) with an editable needed-by date, days-left, and what's outstanding */
+function SequencesPanel({
+  embeds,
+  seqMeta = {},
+  onSetSeqNeeded,
+  wcgPours = [],
+  isPhone
+}) {
+  const dS = window.deliveryState;
+  const SEQS = window.SEQUENCES || ['1', '2', '3', '4'];
+  const count = pred => {
+    let total = 0,
+      out = 0,
+      inst = 0;
+    embeds.forEach(e => {
+      if (!pred(e)) return;
+      total++;
+      if (dS(e) !== 'delivered') out++;
+      if (e.installed) inst++;
+    });
+    return {
+      total,
+      out,
+      inst
+    };
+  };
+  const rows = [...SEQS.map(s => ({
+    key: s,
+    label: seqLabel(s),
+    kind: 'PWJV',
+    defDate: '',
+    ...count(e => e.sequence === s)
+  })), ...wcgPours.map(w => ({
+    key: w.id,
+    label: w.label,
+    kind: 'WCG',
+    defDate: w.date || '',
+    ...count(e => e.wcgPour === w.id)
+  }))];
+  const COLS = isPhone ? '1fr 150px' : '74px minmax(0,1fr) 176px 70px 84px 96px';
+  const head = {
+    fontFamily: T.font.mono,
+    fontSize: 9,
+    letterSpacing: '.1em',
+    textTransform: 'uppercase',
+    color: T.color.steel400
+  };
+  return /*#__PURE__*/React.createElement(Card, {
+    pad: 0,
+    glow: true,
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '13px 18px',
+      borderBottom: '1px solid ' + T.color.line
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 16,
+      textTransform: 'uppercase',
+      letterSpacing: '.03em'
+    }
+  }, "Sequence deadlines"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 10.5,
+      color: T.color.steel400
+    }
+  }, "needed-by per sequence \xB7 WCG defaults to its pour date")), !isPhone && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: COLS,
+      gap: 12,
+      padding: '9px 18px',
+      borderBottom: '1px solid ' + T.color.lineSoft,
+      ...head
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "Layer"), /*#__PURE__*/React.createElement("span", null, "Sequence \xB7 pour"), /*#__PURE__*/React.createElement("span", null, "Needed by"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right'
+    }
+  }, "Days"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right'
+    }
+  }, "Not deliv"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right'
+    }
+  }, "Installed")), rows.map((r, i) => {
+    const needed = (seqMeta[r.key] || {}).needed || r.defDate || '';
+    const ni = neededInfo(needed);
+    return /*#__PURE__*/React.createElement("div", {
+      key: r.kind + r.key,
+      style: {
+        display: 'grid',
+        gridTemplateColumns: COLS,
+        gap: 12,
+        padding: isPhone ? '11px 14px' : '10px 18px',
+        alignItems: 'center',
+        borderBottom: i < rows.length - 1 ? '1px solid ' + T.color.lineSoft : 'none'
+      }
+    }, /*#__PURE__*/React.createElement(Badge, {
+      color: r.kind === 'WCG' ? T.color.cyan : T.color.amberHot,
+      style: {
+        fontSize: 9
+      }
+    }, r.kind), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.display,
+        fontWeight: 600,
+        fontSize: 14.5,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }
+    }, r.label, r.total ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 10.5,
+        color: T.color.steel400
+      }
+    }, " \xB7 ", r.total, " embeds") : null), /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 170
+      }
+    }, /*#__PURE__*/React.createElement(DatePopover, {
+      value: needed,
+      onChange: d => onSetSeqNeeded && onSetSeqNeeded(r.key, d)
+    })), !isPhone && /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right',
+        fontFamily: T.font.mono,
+        fontSize: 12,
+        fontWeight: 700,
+        color: ni ? ni.col : T.color.steel600
+      }
+    }, ni ? ni.lbl : '—'), !isPhone && /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right',
+        fontFamily: T.font.mono,
+        fontSize: 13,
+        color: r.out ? T.color.red : T.color.steel600
+      }
+    }, r.out), !isPhone && /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right',
+        fontFamily: T.font.mono,
+        fontSize: 13,
+        color: T.color.green
+      }
+    }, r.inst, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.color.steel500
+      }
+    }, "/", r.total)));
+  }));
 }
 
 /* Log view — chronological inventory log of every receipt across all types (date · mark · qty · who logged it) */

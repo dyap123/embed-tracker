@@ -94,15 +94,33 @@ function App() {
   const effGrid = gridDraft || grid;
   setGridCfg(effGrid); // keep the global grid math (colX/rowY/gridIdx) in sync with the draft
 
+  // WCG pours = zones on the "WCG Pours" layer with geometry, numbered by date — an embed belongs to the one it sits in
+  const wcgPours = React.useMemo(() => {
+    if (typeof zoneLayer !== 'function' || typeof zonePts !== 'function') return [];
+    const ps = (zones || []).filter(z => zoneLayer(z) === 'WCG Pours' && hasGeom(z)).slice().sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
+    return ps.map((z, i) => ({
+      id: z.id,
+      label: z.name || 'Pour #' + (i + 1),
+      date: z.date || '',
+      pts: zonePts(z)
+    }));
+  }, [zones]);
   const embeds = React.useMemo(() => {
     const base = Object.entries(pins).map(([k, p]) => pinToEmbed(k, p)).filter(e => e.mark);
     // "next pour" highlight is derived live from any zone tagged nextPour (no stale pin flags)
     const npPolys = typeof zonePts === 'function' ? (zones || []).filter(z => z.nextPour).map(z => zonePts(z)) : [];
     base.forEach(e => {
       e.nextPour = npPolys.length > 0 && npPolys.some(pts => pointInPoly(e.nx, e.ny, pts));
+      e.wcgPour = null;
+      for (const wp of wcgPours) {
+        if (pointInPoly(e.nx, e.ny, wp.pts)) {
+          e.wcgPour = wp.id;
+          break;
+        }
+      }
     });
     return base;
-  }, [pins, zones, gridDraft, grid]);
+  }, [pins, zones, gridDraft, grid, wcgPours]);
   function saveGrid(cfg) {
     setGridDraft(null);
     setGridCfg(cfg || null);
@@ -360,6 +378,11 @@ function App() {
       onBulkInstall: bulkInstall,
       seqMeta: seqMeta,
       onSetSeqNeeded: setSeqNeeded,
+      wcgPours: wcgPours.map(w => ({
+        id: w.id,
+        label: w.label,
+        date: w.date
+      })),
       onEditType: (mark, patch) => {
         window.fb.update('embeds/' + mark, patch);
         track('edit');
