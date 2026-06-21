@@ -68,6 +68,11 @@ function recvLast(r) {
   const d = recvList(r).map(e => e.date).filter(Boolean).sort();
   return d.length ? d[d.length - 1] : '';
 }
+// received count, capped to the in-scope qty when a filter is active (receipts are per-mark, not per-seq)
+function recvScoped(r, scopedQty, scoped) {
+  const t = recvTotal(r);
+  return scoped ? Math.min(t, scopedQty || 0) : t;
+}
 function Inventory({
   embeds,
   isPhone,
@@ -284,7 +289,7 @@ function Inventory({
         delivered: n.delv,
         transit: n.transit,
         notDelivered: Math.max(0, n.qty - n.delv - n.transit),
-        received: recvTotal(r),
+        received: recvScoped(r, n.qty, anyFilter),
         receivedOn: recvLast(r) || '',
         remaining: Math.max(0, n.qty - n.inst),
         pct: n.qty ? Math.round(n.inst / n.qty * 100) : 0,
@@ -932,7 +937,7 @@ function Inventory({
       style: {
         color: T.color.green
       }
-    }, " \xB7 Rec\u2019d ", recvTotal(r), "/", n.qty, recvLast(r) ? ' · ' + window.shortDate(recvLast(r)) : '') : ''))), /*#__PURE__*/React.createElement(Num, {
+    }, " \xB7 Rec\u2019d ", recvScoped(r, n.qty, anyFilter), "/", n.qty, recvLast(r) ? ' · ' + window.shortDate(recvLast(r)) : '') : ''))), /*#__PURE__*/React.createElement(Num, {
       label: isPhone ? 'Qty' : null,
       v: n.qty
     }), !isPhone && /*#__PURE__*/React.createElement(Num, {

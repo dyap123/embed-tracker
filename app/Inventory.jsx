@@ -22,6 +22,8 @@ function neededInfo(iso){
 function recvList(r){ const x=r&&r.receipts; if(!x) return []; const a=Array.isArray(x)?x:Object.values(x); return a.filter(e=>e&&e.qty!=null); }
 function recvTotal(r){ return recvList(r).reduce((s,e)=>s+(+e.qty||0),0); }
 function recvLast(r){ const d=recvList(r).map(e=>e.date).filter(Boolean).sort(); return d.length?d[d.length-1]:''; }
+// received count, capped to the in-scope qty when a filter is active (receipts are per-mark, not per-seq)
+function recvScoped(r, scopedQty, scoped){ const t=recvTotal(r); return scoped ? Math.min(t, scopedQty||0) : t; }
 function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, userName, seqMeta={}, onSetSeqNeeded, wcgPours=[] }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
@@ -111,7 +113,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
-      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:recvTotal(r), receivedOn:recvLast(r)||'',
+      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:recvScoped(r,n.qty,anyFilter), receivedOn:recvLast(r)||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
       bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq, receipts:recvList(r) }; });
     window.exportInventory(data, kind, SEQS); }
@@ -270,7 +272,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{recvTotal(r)>0?<span style={{ color:T.color.green }}> · Rec’d {recvTotal(r)}/{n.qty}{recvLast(r)?' · '+window.shortDate(recvLast(r)):''}</span>:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{recvTotal(r)>0?<span style={{ color:T.color.green }}> · Rec’d {recvScoped(r,n.qty,anyFilter)}/{n.qty}{recvLast(r)?' · '+window.shortDate(recvLast(r)):''}</span>:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
