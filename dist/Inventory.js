@@ -1780,8 +1780,8 @@ function SequencesPanel({
   }));
 }
 
-/* Deliveries view — every delivery grouped by the date it arrived ("Delivery on ___"), derived live from the
-   plan (deliveryState). Sort newest/oldest; expand a date to see exactly what was delivered + undo a mistake. */
+/* Deliveries view — every delivery derived live from the plan (deliveryState). Two views: "By date" groups
+   into "Delivery — ___" cards; "All" is a flat, sortable list of every line item. Sort newest/oldest. */
 function DeliveriesView({
   embeds,
   isPhone,
@@ -1791,9 +1791,10 @@ function DeliveriesView({
 }) {
   const dS = window.deliveryState;
   const [sortDir, setSortDir] = React.useState('desc');
+  const [viewMode, setViewMode] = React.useState('date'); // 'date' grouped cards | 'all' flat line items
   const [open, setOpen] = React.useState(null);
   const delivered = (embeds || []).filter(e => dS(e) === 'delivered');
-  // group delivered pins by the date they arrived → { date, total, by:{name}, byMark:{mark:{qty,ids,desc}} }
+  // group delivered pins by the date they arrived → { date, total, by:{name}, byMark:{mark:{qty,ids,desc,by}} }
   const byDate = {};
   delivered.forEach(e => {
     const d = window.receivedAt(e) || '';
@@ -1812,14 +1813,34 @@ function DeliveriesView({
       mark: mk,
       desc: e.typeLabel,
       qty: 0,
-      ids: []
+      ids: [],
+      by: {}
     });
     m.qty++;
     m.ids.push(e.id);
+    if (e.deliveredBy) m.by[e.deliveredBy] = 1;
   });
+  const byDateAsc = (a, b) => sortDir === 'desc' ? String(b).localeCompare(String(a)) : String(a).localeCompare(String(b));
   let dates = Object.keys(byDate).filter(d => d !== '');
-  dates.sort((a, b) => sortDir === 'desc' ? String(b).localeCompare(String(a)) : String(a).localeCompare(String(b)));
+  dates.sort(byDateAsc);
   if (byDate['']) dates.push(''); // undated deliveries always sink to the bottom
+  // flat line items (one per date × mark) for the "All" view — undated forced last in both directions
+  const lineItems = [];
+  Object.values(byDate).forEach(g => Object.values(g.byMark).forEach(m => lineItems.push({
+    date: g.date,
+    mark: m.mark,
+    desc: m.desc,
+    qty: m.qty,
+    ids: m.ids,
+    by: Object.keys(m.by)
+  })));
+  lineItems.sort((a, b) => {
+    if (!a.date && b.date) return 1;
+    if (a.date && !b.date) return -1;
+    return byDateAsc(a.date, b.date) || String(a.mark).localeCompare(String(b.mark), undefined, {
+      numeric: true
+    });
+  });
   if (!delivered.length) return /*#__PURE__*/React.createElement(Card, {
     pad: 22,
     glow: true,
@@ -1847,6 +1868,21 @@ function DeliveriesView({
     }
   }, "Summary"), " view \u2014 each one shows up here grouped by the date it arrived."));
   const MCOLS = '1fr 56px 30px';
+  const LCOLS = isPhone ? '74px 1fr 46px 28px' : '96px 1.5fr 60px 1fr 30px'; // All-view: date | mark·type | qty | by | undo
+  const badge = {
+    width: 42,
+    height: 27,
+    borderRadius: 7,
+    display: 'grid',
+    placeItems: 'center',
+    flex: '0 0 auto',
+    background: steelPlate('#26313F', '#1A2230'),
+    border: '1px solid ' + T.color.line,
+    fontFamily: T.font.mono,
+    fontWeight: 700,
+    fontSize: 12,
+    color: T.color.amberHot
+  };
   return /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -1882,7 +1918,7 @@ function DeliveriesView({
     style: {
       display: 'flex',
       alignItems: 'center',
-      gap: 12,
+      gap: 10,
       flexWrap: 'wrap'
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -1891,11 +1927,22 @@ function DeliveriesView({
       fontSize: 11.5,
       color: T.color.steel400
     }
-  }, dates.length, " ", dates.length === 1 ? 'delivery' : 'deliveries', " \xB7 ", /*#__PURE__*/React.createElement("b", {
+  }, viewMode === 'all' ? `${lineItems.length} line items` : `${dates.length} ${dates.length === 1 ? 'delivery' : 'deliveries'}`, " \xB7 ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: T.color.green
     }
   }, delivered.length), " on site"), /*#__PURE__*/React.createElement(Segmented, {
+    size: "sm",
+    value: viewMode,
+    onChange: setViewMode,
+    options: [{
+      value: 'date',
+      label: 'By date'
+    }, {
+      value: 'all',
+      label: 'All'
+    }]
+  }), /*#__PURE__*/React.createElement(Segmented, {
     size: "sm",
     value: sortDir,
     onChange: setSortDir,
@@ -1906,7 +1953,88 @@ function DeliveriesView({
       value: 'asc',
       label: 'Oldest'
     }]
-  }))), dates.map(d => {
+  }))), viewMode === 'all' && /*#__PURE__*/React.createElement(React.Fragment, null, !isPhone && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: LCOLS,
+      gap: 12,
+      padding: '10px 20px',
+      borderBottom: '1px solid ' + T.color.lineSoft,
+      fontFamily: T.font.mono,
+      fontSize: 9.5,
+      letterSpacing: '.12em',
+      textTransform: 'uppercase',
+      color: T.color.steel400
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "Date"), /*#__PURE__*/React.createElement("span", null, "Mark \xB7 type"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right'
+    }
+  }, "Qty"), /*#__PURE__*/React.createElement("span", null, "Logged by"), /*#__PURE__*/React.createElement("span", null)), lineItems.map((li, i) => /*#__PURE__*/React.createElement("div", {
+    key: (li.date || '—') + '|' + li.mark,
+    style: {
+      display: 'grid',
+      gridTemplateColumns: LCOLS,
+      gap: 12,
+      alignItems: 'center',
+      padding: isPhone ? '11px 16px' : '11px 20px',
+      borderBottom: i < lineItems.length - 1 ? '1px solid ' + T.color.lineSoft : 'none'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: isPhone ? 10.5 : 11.5,
+      fontWeight: li.date ? 400 : 700,
+      color: li.date ? T.color.steel300 : T.color.yellow
+    }
+  }, window.shortDate(li.date) || 'No date'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: badge
+  }, li.mark), !isPhone && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 600,
+      fontSize: 13.5,
+      color: T.color.steel200,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    }
+  }, li.desc || 'Anchor Bolt')), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: 'right',
+      fontFamily: T.font.mono,
+      fontWeight: 700,
+      fontSize: 14,
+      color: T.color.green
+    }
+  }, li.qty), !isPhone && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      color: li.by.length ? T.color.steel200 : T.color.steel600,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    }
+  }, li.by.join(', ') || '—'), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onBulkDelivery && onBulkDelivery(li.ids, 'none'),
+    title: `Undo — set ${li.mark} (${li.qty}) back to not delivered`,
+    style: {
+      color: T.color.steel400,
+      justifySelf: 'end',
+      padding: 3
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 14
+  }))))), viewMode === 'date' && dates.map(d => {
     const g = byDate[d];
     const key = d || '—';
     const isOpen = open === key;
