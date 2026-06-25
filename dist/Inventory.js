@@ -54,24 +54,33 @@ function neededInfo(iso) {
     lbl
   };
 }
-// per-type receiving log (embeds/{mark}.receipts = [{qty,date}, …]) — partial deliveries over time
-function recvList(r) {
-  const x = r && r.receipts;
-  if (!x) return [];
-  const a = Array.isArray(x) ? x : Object.values(x);
-  return a.filter(e => e && e.qty != null);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+// deliveries are DERIVED from the live plan: a pin counts as "delivered on D" when deliveryState==='delivered'
+// and receivedAt() gives its date. No separate receipts log — marking delivered IS the log.
+function delivPins(pins) {
+  const dS = window.deliveryState;
+  return (pins || []).filter(e => dS(e) === 'delivered');
 }
-function recvTotal(r) {
-  return recvList(r).reduce((s, e) => s + (+e.qty || 0), 0);
+function delivByDate(pins) {
+  const m = {};
+  delivPins(pins).forEach(e => {
+    const d = window.receivedAt(e) || '';
+    (m[d] || (m[d] = {
+      date: d,
+      qty: 0,
+      ids: []
+    })).qty++;
+    m[d].ids.push(e.id);
+  });
+  return m;
 }
-function recvLast(r) {
-  const d = recvList(r).map(e => e.date).filter(Boolean).sort();
-  return d.length ? d[d.length - 1] : '';
-}
-// received count, capped to the in-scope qty when a filter is active (receipts are per-mark, not per-seq)
-function recvScoped(r, scopedQty, scoped) {
-  const t = recvTotal(r);
-  return scoped ? Math.min(t, scopedQty || 0) : t;
+function delivLast(pins) {
+  let d = '';
+  delivPins(pins).forEach(e => {
+    const x = window.receivedAt(e) || '';
+    if (x > d) d = x;
+  });
+  return d;
 }
 function Inventory({
   embeds,
@@ -111,6 +120,11 @@ function Inventory({
   const anyFilter = seqFilter !== 'all' || delivFilter !== 'all';
   // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
   const scoped = embeds.filter(e => matchSeq(e) && matchDeliv(e));
+  // scoped pins grouped by mark — source for per-mark counts, by-date delivery history, and bulk check-off
+  const markPins = {};
+  scoped.forEach(e => {
+    (markPins[e.mark] || (markPins[e.mark] = [])).push(e);
+  });
 
   // headline stats for the scope — "how many embeds / types in the selected region"
   const stats = {
@@ -179,16 +193,16 @@ function Inventory({
   const byMarkSort = (a, b) => String(a.id).localeCompare(String(b.id), undefined, {
     numeric: true
   });
-  // received sort by latest receipt date: not-yet-received rows sink to the bottom; ISO dates compare chronologically
-  const byRecv = dir => (a, b) => {
-    const ra = recvLast(a),
-      rb = recvLast(b);
+  // sort by latest delivered date: never-delivered rows sink to the bottom; ISO dates compare chronologically
+  const byDeliv = dir => (a, b) => {
+    const ra = delivLast(markPins[a.id]),
+      rb = delivLast(markPins[b.id]);
     if (ra === rb) return byMarkSort(a, b);
     if (!ra) return 1;
     if (!rb) return -1;
     return dir === 'desc' ? rb < ra ? -1 : 1 : ra < rb ? -1 : 1;
   };
-  const sortFn = sortBy === 'recvDesc' ? byRecv('desc') : sortBy === 'recvAsc' ? byRecv('asc') : byMarkSort;
+  const sortFn = sortBy === 'recvDesc' ? byDeliv('desc') : sortBy === 'recvAsc' ? byDeliv('asc') : byMarkSort;
   const rows = Object.values(byMark).filter(r => !anyFilter || (r._pinned || 0) > 0) // hide marks with nothing in the active filter scope
   .filter(matchRow).sort(sortFn);
   // with no scope filter the "design qty" baseline is the master total; otherwise it's the in-scope placed count
@@ -237,34 +251,14 @@ function Inventory({
   });
   // pin ids for a mark within the current sequence scope — used by the bulk check-off buttons
   function markIds(id) {
-    return scoped.filter(e => e.mark === id).map(e => e.id);
+    return (markPins[id] || []).map(e => e.id);
   }
-  // append a receipt to a mark's receiving log (used from the Summary drill-down + table); records who logged it
-  function logReceipt(mark, qty, date) {
-    const nq = Math.round(+qty);
-    if (!mark || !nq || nq <= 0) return;
-    const cur = recvList({
-      receipts: (types[mark] || {}).receipts
-    });
-    onEditType(mark, {
-      id: mark,
-      receipts: [...cur, {
-        qty: nq,
-        date: date || new Date().toISOString().slice(0, 10),
-        by: userName || null
-      }]
-    });
-  }
-  // remove receipt #i from a mark's log (used from the Log view)
-  function removeReceipt(mark, i) {
-    const cur = recvList({
-      receipts: (types[mark] || {}).receipts
-    });
-    const next = cur.filter((_, k) => k !== i);
-    onEditType(mark, {
-      id: mark,
-      receipts: next.length ? next : null
-    });
+  // mark N not-yet-delivered pins of a mark as delivered on a date (the streamlined "log a delivery" action)
+  function markDelivered(mark, qty, date) {
+    const ps = markPins[mark] || [];
+    const avail = ps.filter(e => dState(e) !== 'delivered').map(e => e.id);
+    const nn = Math.min(Math.max(1, Math.round(+qty || avail.length)), avail.length);
+    if (nn > 0 && onBulkDelivery) onBulkDelivery(avail.slice(0, nn), 'delivered', date || todayISO());
   }
   function expInv(kind) {
     const data = rows.map(r => {
@@ -279,6 +273,7 @@ function Inventory({
         };
         seq[s] = c;
       });
+      const dd = delivByDate(markPins[r.id]); // delivered, grouped by date → export "Receiving Log" rows
       return {
         id: r.id,
         desc: r.desc,
@@ -289,8 +284,8 @@ function Inventory({
         delivered: n.delv,
         transit: n.transit,
         notDelivered: Math.max(0, n.qty - n.delv - n.transit),
-        received: recvScoped(r, n.qty, anyFilter),
-        receivedOn: recvLast(r) || '',
+        received: n.delv,
+        receivedOn: delivLast(markPins[r.id]) || '',
         remaining: Math.max(0, n.qty - n.inst),
         pct: n.qty ? Math.round(n.inst / n.qty * 100) : 0,
         bolts: r.bolts,
@@ -298,7 +293,10 @@ function Inventory({
         len: r.len,
         supplier: r.supplier,
         seq,
-        receipts: recvList(r)
+        receipts: Object.values(dd).sort((a, b) => String(a.date).localeCompare(String(b.date))).map(x => ({
+          date: x.date,
+          qty: x.qty
+        }))
       };
     });
     window.exportInventory(data, kind, SEQS);
@@ -335,6 +333,7 @@ function Inventory({
       const mm = b.byMark[mk] || (b.byMark[mk] = {
         mark: mk,
         ids: [],
+        undeliveredIds: [],
         embeds: 0,
         delivered: 0,
         transit: 0,
@@ -342,7 +341,10 @@ function Inventory({
       });
       mm.embeds++;
       mm.ids.push(e.id);
-      if (dl === 'delivered') mm.delivered++;else if (dl === 'transit') mm.transit++;
+      if (dl === 'delivered') mm.delivered++;else {
+        mm.undeliveredIds.push(e.id);
+        if (dl === 'transit') mm.transit++;
+      }
       if (e.installed) mm.installed++;
     });
     const order = groupBy === 'sequence' ? SEQS : groupBy === 'area' ? window.AREAS || ['A', 'B', 'C', 'D'] : groupBy === 'delivery' ? window.DELIVERY_ORDER || ['delivered', 'transit', 'none'] : ['plain', 'knife', 'stub'];
@@ -524,7 +526,7 @@ function Inventory({
       label: 'Summary'
     }, {
       value: 'log',
-      label: 'Log'
+      label: 'Deliveries'
     }]
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -557,10 +559,10 @@ function Inventory({
   }, "Sort: Mark"), /*#__PURE__*/React.createElement("option", {
     value: "recvDesc",
     style: SELECT_OPT
-  }, "Sort: Received (newest)"), /*#__PURE__*/React.createElement("option", {
+  }, "Sort: Delivered (newest)"), /*#__PURE__*/React.createElement("option", {
     value: "recvAsc",
     style: SELECT_OPT
-  }, "Sort: Received (oldest)"))), /*#__PURE__*/React.createElement(Btn, {
+  }, "Sort: Delivered (oldest)"))), /*#__PURE__*/React.createElement(Btn, {
     kind: deadlinesOpen ? 'primary' : 'ghost',
     size: "sm",
     icon: "calendar",
@@ -806,19 +808,19 @@ function Inventory({
       value: 'attr',
       label: 'Type'
     }]
-  })), viewMode === 'log' ? /*#__PURE__*/React.createElement(ReceiptsView, {
-    types: types,
-    ql: ql,
-    onRemove: removeReceipt,
-    isPhone: isPhone
+  })), viewMode === 'log' ? /*#__PURE__*/React.createElement(DeliveriesView, {
+    embeds: embeds.filter(e => matchSeq(e) && matchEmbed(e)),
+    isPhone: isPhone,
+    onBulkDelivery: onBulkDelivery,
+    canEdit: canEdit,
+    scopeLabel: seqFilter !== 'all' ? (seqMode === 'wcg' ? 'WCG · ' : '') + seqLabelOf(seqFilter) : ''
   }) : viewMode === 'summary' ? /*#__PURE__*/React.createElement(SummaryGrid, {
     groups: groups,
     isPhone: isPhone,
     onBulkDelivery: onBulkDelivery,
     onBulkInstall: onBulkInstall,
     seqMeta: seqMeta,
-    groupBy: groupBy,
-    onLogReceipt: logReceipt
+    groupBy: groupBy
   }) : /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -933,11 +935,11 @@ function Inventory({
         fontSize: 10.5,
         color: T.color.steel400
       }
-    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : '', recvTotal(r) > 0 ? /*#__PURE__*/React.createElement("span", {
+    }, r.seq ? seqLabel(r.seq) : '—', r.plate ? ' · ' + r.plate : '', n.delv > 0 ? /*#__PURE__*/React.createElement("span", {
       style: {
         color: T.color.green
       }
-    }, " \xB7 Rec\u2019d ", recvScoped(r, n.qty, anyFilter), "/", n.qty, recvLast(r) ? ' · ' + window.shortDate(recvLast(r)) : '') : ''))), /*#__PURE__*/React.createElement(Num, {
+    }, " \xB7 Delivered ", n.delv, "/", n.qty, delivLast(markPins[r.id]) ? ' · ' + window.shortDate(delivLast(markPins[r.id])) : '') : ''))), /*#__PURE__*/React.createElement(Num, {
       label: isPhone ? 'Qty' : null,
       v: n.qty
     }), !isPhone && /*#__PURE__*/React.createElement(Num, {
@@ -996,16 +998,12 @@ function Inventory({
         justifySelf: 'end'
       }
     })), isOpen && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DeliveryControls, {
-      n: n,
-      ids: markIds(r.id),
+      pins: markPins[r.id] || [],
+      qty: n.qty,
       seqFilter: seqFilter,
       onBulkDelivery: onBulkDelivery,
       by: userName,
-      receipts: r.receipts,
-      onSetReceipts: arr => onEditType(r.id, {
-        id: r.id,
-        receipts: arr && arr.length ? arr : null
-      })
+      isPhone: isPhone
     }), /*#__PURE__*/React.createElement(SeqBreakdown, {
       info: seqInfo[r.id],
       deliv: delivInfo[r.id],
@@ -1211,190 +1209,42 @@ function DelivCell({
   }, "+", transit));
 }
 
-/* bulk delivery check-off for a mark (scoped to the current sequence filter) — open to all signed-in users */
-/* receiving log — log "received N on date D" as many times as needed; accumulates toward the type's qty */
-function ReceiptLog({
-  qty,
-  receipts,
-  onChange,
-  by
-}) {
-  const list = recvList({
-    receipts
-  });
-  const total = list.reduce((s, e) => s + (+e.qty || 0), 0);
-  const outstanding = Math.max(0, (qty || 0) - total);
-  const [addQty, setAddQty] = React.useState('');
-  const [addDate, setAddDate] = React.useState(() => new Date().toISOString().slice(0, 10));
-  function add() {
-    const nq = Math.round(+addQty);
-    if (!nq || nq <= 0 || !onChange) return;
-    onChange([...list, {
-      qty: nq,
-      date: addDate || new Date().toISOString().slice(0, 10),
-      by: by || null
-    }]);
-    setAddQty('');
-  }
-  function remove(i) {
-    if (onChange) onChange(list.filter((_, k) => k !== i));
-  }
-  const indexed = list.map((e, i) => ({
-    e,
-    i
-  })).sort((a, b) => String(b.e.date || '').localeCompare(String(a.e.date || '')));
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-      gap: 8,
-      flexWrap: 'wrap'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 9.5,
-      letterSpacing: '.12em',
-      textTransform: 'uppercase',
-      color: T.color.steel400
-    }
-  }, "Receiving log"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 11,
-      color: T.color.steel300
-    }
-  }, "received ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: T.color.green
-    }
-  }, total), " of ", qty || '—', " \xB7 ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: outstanding > 0 ? T.color.red : T.color.green
-    }
-  }, outstanding), " outstanding")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 8,
-      flexWrap: 'wrap'
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    min: "1",
-    value: addQty,
-    onChange: e => setAddQty(e.target.value),
-    placeholder: "Qty",
-    onKeyDown: e => {
-      if (e.key === 'Enter') add();
-    },
-    style: {
-      ...inputStyle,
-      width: 74,
-      padding: '7px 9px',
-      fontSize: 13,
-      fontFamily: T.font.mono
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 11,
-      color: T.color.steel400
-    }
-  }, "received on"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 158
-    }
-  }, /*#__PURE__*/React.createElement(DatePopover, {
-    value: addDate,
-    onChange: setAddDate
-  })), /*#__PURE__*/React.createElement(Btn, {
-    size: "sm",
-    kind: "primary",
-    icon: "plus",
-    onClick: add
-  }, "Log receipt")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 6,
-      marginTop: 8
-    }
-  }, indexed.length === 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 11,
-      color: T.color.steel600
-    }
-  }, "No receipts logged yet."), indexed.map(({
-    e,
-    i
-  }) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      padding: '6px 11px',
-      borderRadius: 8,
-      background: 'rgba(47,214,166,.08)',
-      border: '1px solid rgba(47,214,166,.25)'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontWeight: 700,
-      fontSize: 13.5,
-      color: T.color.green
-    }
-  }, e.qty), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 11,
-      color: T.color.steel400
-    }
-  }, "received"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 12,
-      color: '#fff'
-    }
-  }, window.shortDate(e.date) || '—'), /*#__PURE__*/React.createElement("button", {
-    onClick: () => remove(i),
-    title: "Remove receipt",
-    style: {
-      marginLeft: 'auto',
-      color: T.color.steel400,
-      padding: 2
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "close",
-    size: 13
-  }))))));
-}
+/* per-mark delivery — enter how many arrived on a date (the streamlined "log a delivery": marks that many
+   pins delivered → turns the plan dots green), set the whole mark, and see the by-date history. Open to all. */
 function DeliveryControls({
-  n,
-  ids,
+  pins,
+  qty,
   seqFilter,
   onBulkDelivery,
-  receipts,
-  onSetReceipts,
-  by
+  by,
+  isPhone
 }) {
-  const notDel = Math.max(0, (n.qty || n.pinned || 0) - n.delv - n.transit);
+  const dS = window.deliveryState;
+  const ids = (pins || []).map(e => e.id);
+  const delivered = (pins || []).filter(e => dS(e) === 'delivered');
+  const transit = (pins || []).filter(e => dS(e) === 'transit');
+  const notYet = (pins || []).filter(e => dS(e) !== 'delivered'); // none + on the way
+  const avail = notYet.length;
   const scope = seqFilter === 'all' ? 'all sequences' : seqLabel(seqFilter);
+  const [addQty, setAddQty] = React.useState('');
+  const [date, setDate] = React.useState(todayISO);
+  function markDeliv() {
+    const nn = Math.min(Math.max(1, Math.round(+addQty || avail)), avail);
+    if (nn > 0 && onBulkDelivery) onBulkDelivery(notYet.slice(0, nn).map(e => e.id), 'delivered', date);
+    setAddQty('');
+  }
+  const set = status => ids.length && onBulkDelivery && onBulkDelivery(ids, status, status === 'delivered' ? date : undefined);
+  const hist = Object.values(delivByDate(pins)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const B = (status, label, rgb) => /*#__PURE__*/React.createElement("button", {
-    onClick: () => ids.length && onBulkDelivery && onBulkDelivery(ids, status),
+    onClick: () => set(status),
     disabled: !ids.length,
     style: {
       flex: 1,
-      padding: '9px 0',
+      padding: '8px 0',
       borderRadius: T.radius.md,
       fontFamily: T.font.display,
       fontWeight: 700,
-      fontSize: 12,
+      fontSize: 11.5,
       letterSpacing: '.03em',
       background: `rgba(${rgb},.14)`,
       border: `1px solid rgba(${rgb},.5)`,
@@ -1407,51 +1257,153 @@ function DeliveryControls({
     style: {
       padding: '12px 20px 0'
     }
-  }, /*#__PURE__*/React.createElement(ReceiptLog, {
-    qty: n.qty,
-    receipts: receipts,
-    onChange: onSetReceipts,
-    by: by
-  }), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
       display: 'block',
-      marginTop: 16,
       fontFamily: T.font.mono,
       fontSize: 9.5,
       letterSpacing: '.12em',
       textTransform: 'uppercase',
       color: T.color.steel400
     }
-  }, "Delivery status on plan \xB7 ", ids.length, " pins \xB7 ", scope), /*#__PURE__*/React.createElement("div", {
+  }, "Log a delivery \xB7 ", ids.length, " pins \xB7 ", scope), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      gap: 7,
-      marginTop: 8
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 8,
+      flexWrap: 'wrap',
+      padding: '9px 11px',
+      borderRadius: T.radius.md,
+      background: 'rgba(47,214,166,.07)',
+      border: '1px solid rgba(47,214,166,.28)'
     }
-  }, B('delivered', 'Delivered', '47,214,166'), B('transit', 'On the way', '245,194,75'), B('none', 'Not delivered', '240,85,107')), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: avail,
+    value: addQty,
+    onChange: e => setAddQty(e.target.value),
+    placeholder: avail || 0,
+    disabled: !avail,
+    onKeyDown: e => {
+      if (e.key === 'Enter') markDeliv();
+    },
+    style: {
+      ...inputStyle,
+      width: 70,
+      padding: '7px 9px',
+      fontSize: 13,
+      fontFamily: T.font.mono,
+      opacity: avail ? 1 : .5
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      color: T.color.steel400
+    }
+  }, "of ", avail, " delivered on"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 154
+    }
+  }, /*#__PURE__*/React.createElement(DatePopover, {
+    value: date,
+    onChange: setDate
+  })), /*#__PURE__*/React.createElement(Btn, {
+    size: "sm",
+    kind: "primary",
+    icon: "check",
+    disabled: !avail,
+    onClick: markDeliv,
+    style: {
+      marginLeft: 'auto'
+    }
+  }, "Mark delivered")), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 10.5,
       color: T.color.steel400,
-      marginTop: 8
+      marginTop: 6
     }
   }, "Delivered ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: T.color.green
     }
-  }, n.delv), " \xB7 On the way ", /*#__PURE__*/React.createElement("b", {
+  }, delivered.length), " \xB7 On the way ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: T.color.yellow
     }
-  }, n.transit), " \xB7 Not ", /*#__PURE__*/React.createElement("b", {
+  }, transit.length), " \xB7 Not delivered ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: T.color.red
     }
-  }, notDel), /*#__PURE__*/React.createElement("span", {
+  }, notYet.length - transit.length), " of ", qty || ids.length, /*#__PURE__*/React.createElement("span", {
     style: {
       color: T.color.steel600
     }
-  }, " \xB7 colors the plan dots")));
+  }, " \xB7 colors the plan dots")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 7,
+      marginTop: 10
+    }
+  }, B('delivered', 'All delivered', '47,214,166'), B('transit', 'All on the way', '245,194,75'), B('none', 'All not delivered', '240,85,107')), hist.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'block',
+      marginTop: 14,
+      fontFamily: T.font.mono,
+      fontSize: 9.5,
+      letterSpacing: '.12em',
+      textTransform: 'uppercase',
+      color: T.color.steel400
+    }
+  }, "Delivered on"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: 7,
+      marginTop: 8
+    }
+  }, hist.map(h => /*#__PURE__*/React.createElement("div", {
+    key: h.date || '—',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '5px 6px 5px 11px',
+      borderRadius: T.radius.pill,
+      background: 'rgba(47,214,166,.08)',
+      border: '1px solid rgba(47,214,166,.25)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      color: '#fff'
+    }
+  }, window.shortDate(h.date) || 'No date'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontWeight: 700,
+      fontSize: 12.5,
+      color: T.color.green
+    }
+  }, "\xD7", h.qty), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onBulkDelivery && onBulkDelivery(h.ids, 'none'),
+    title: "Undo this delivery (set those pins back to not delivered)",
+    style: {
+      width: 20,
+      height: 20,
+      display: 'grid',
+      placeItems: 'center',
+      borderRadius: 5,
+      color: T.color.steel400
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 12
+  })))))));
 }
 
 /* expandable per-type editor — input info for each embed mark */
@@ -1797,39 +1749,45 @@ function SequencesPanel({
   }));
 }
 
-/* Log view — chronological inventory log of every receipt across all types (date · mark · qty · who logged it) */
-function ReceiptsView({
-  types,
-  ql,
-  onRemove,
-  isPhone
+/* Deliveries view — every delivery grouped by the date it arrived ("Delivery on ___"), derived live from the
+   plan (deliveryState). Sort newest/oldest; expand a date to see exactly what was delivered + undo a mistake. */
+function DeliveriesView({
+  embeds,
+  isPhone,
+  onBulkDelivery,
+  canEdit,
+  scopeLabel
 }) {
-  const all = [];
-  Object.values(types || {}).forEach(t => {
-    if (!t || !t.id) return;
-    recvList(t).forEach((rc, i) => {
-      all.push({
-        mark: t.id,
-        desc: t.desc,
-        qty: +rc.qty || 0,
-        date: rc.date || '',
-        by: rc.by || '',
-        i
-      });
-    });
-  });
-  const terms = (ql || '').split(/\s+/).filter(Boolean);
-  const filtered = all.filter(e => !terms.length || terms.every(t => (e.mark + ' ' + (e.desc || '')).toLowerCase().includes(t)));
-  filtered.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.mark).localeCompare(String(b.mark), undefined, {
-    numeric: true
-  }));
-  const totalQty = filtered.reduce((s, e) => s + e.qty, 0);
+  const dS = window.deliveryState;
+  const [sortDir, setSortDir] = React.useState('desc');
+  const [open, setOpen] = React.useState(null);
+  const delivered = (embeds || []).filter(e => dS(e) === 'delivered');
+  // group delivered pins by the date they arrived → { date, total, by:{name}, byMark:{mark:{qty,ids,desc}} }
   const byDate = {};
-  filtered.forEach(e => {
-    (byDate[e.date] = byDate[e.date] || []).push(e);
+  delivered.forEach(e => {
+    const d = window.receivedAt(e) || '';
+    const g = byDate[d] || (byDate[d] = {
+      date: d,
+      total: 0,
+      by: {},
+      byMark: {}
+    });
+    g.total++;
+    if (e.deliveredBy) g.by[e.deliveredBy] = 1;
+    const mk = e.mark || '—';
+    const m = g.byMark[mk] || (g.byMark[mk] = {
+      mark: mk,
+      desc: e.typeLabel,
+      qty: 0,
+      ids: []
+    });
+    m.qty++;
+    m.ids.push(e.id);
   });
-  const dates = Object.keys(byDate).sort((a, b) => String(b).localeCompare(String(a)));
-  if (!filtered.length) return /*#__PURE__*/React.createElement(Card, {
+  let dates = Object.keys(byDate).filter(d => d !== '');
+  dates.sort((a, b) => sortDir === 'desc' ? String(b).localeCompare(String(a)) : String(a).localeCompare(String(b)));
+  if (byDate['']) dates.push(''); // undated deliveries always sink to the bottom
+  if (!delivered.length) return /*#__PURE__*/React.createElement(Card, {
     pad: 22,
     glow: true,
     style: {
@@ -1842,30 +1800,20 @@ function ReceiptsView({
       color: T.color.steel400,
       lineHeight: 1.6
     }
-  }, "No deliveries logged yet. Log receipts from a type's row (", /*#__PURE__*/React.createElement("b", {
+  }, "No deliveries yet. Mark what's arrived from a mark's row (", /*#__PURE__*/React.createElement("b", {
     style: {
       color: '#fff'
     }
-  }, "Table"), " \u2192 expand a mark) or from the ", /*#__PURE__*/React.createElement("b", {
+  }, "Table"), " \u2192 expand a mark \u2192 ", /*#__PURE__*/React.createElement("b", {
     style: {
       color: '#fff'
     }
-  }, "Summary"), " view."));
-  const COLS = isPhone ? '1fr 50px 26px' : '92px 1.4fr 70px 1.1fr 28px';
-  const badge = {
-    width: 42,
-    height: 28,
-    borderRadius: 7,
-    display: 'grid',
-    placeItems: 'center',
-    flex: '0 0 auto',
-    background: steelPlate('#26313F', '#1A2230'),
-    border: '1px solid ' + T.color.line,
-    fontFamily: T.font.mono,
-    fontWeight: 700,
-    fontSize: 12,
-    color: T.color.amberHot
-  };
+  }, "Mark delivered"), ") or from the ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: '#fff'
+    }
+  }, "Summary"), " view \u2014 each one shows up here grouped by the date it arrived."));
+  const MCOLS = '1fr 56px 30px';
   return /*#__PURE__*/React.createElement(Card, {
     pad: 0,
     glow: true,
@@ -1875,13 +1823,14 @@ function ReceiptsView({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      alignItems: 'baseline',
+      alignItems: 'center',
       justifyContent: 'space-between',
       gap: 10,
+      flexWrap: 'wrap',
       padding: '14px 20px',
       borderBottom: '1px solid ' + T.color.line
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: T.font.display,
       fontWeight: 700,
@@ -1889,121 +1838,196 @@ function ReceiptsView({
       textTransform: 'uppercase',
       letterSpacing: '.03em'
     }
-  }, "Delivery log"), /*#__PURE__*/React.createElement("span", {
+  }, "Deliveries"), scopeLabel && /*#__PURE__*/React.createElement("span", {
     style: {
-      fontFamily: T.font.mono,
-      fontSize: 11.5,
-      color: T.color.steel400
-    }
-  }, filtered.length, " receipts \xB7 ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: T.color.green
-    }
-  }, totalQty), " received")), !isPhone && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: COLS,
-      gap: 12,
-      padding: '10px 20px',
-      borderBottom: '1px solid ' + T.color.lineSoft,
-      fontFamily: T.font.mono,
-      fontSize: 9.5,
-      letterSpacing: '.12em',
-      textTransform: 'uppercase',
-      color: T.color.steel400
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "Date"), /*#__PURE__*/React.createElement("span", null, "Mark \xB7 type"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      textAlign: 'right'
-    }
-  }, "Qty"), /*#__PURE__*/React.createElement("span", null, "Logged by"), /*#__PURE__*/React.createElement("span", null)), dates.map(d => /*#__PURE__*/React.createElement("div", {
-    key: d
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      padding: '8px 20px',
-      background: 'rgba(30,58,107,.14)',
       fontFamily: T.font.mono,
       fontSize: 11,
-      color: T.color.steel300
+      color: T.color.steel400,
+      marginLeft: 8
+    }
+  }, "\xB7 ", scopeLabel)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap'
     }
   }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 700,
-      color: '#fff'
-    }
-  }, window.shortDate(d) || 'No date'), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: T.color.green
-    }
-  }, byDate[d].reduce((s, e) => s + e.qty, 0)), " received")), byDate[d].map((e, k) => /*#__PURE__*/React.createElement("div", {
-    key: k,
-    style: {
-      display: 'grid',
-      gridTemplateColumns: COLS,
-      gap: 12,
-      padding: isPhone ? '11px 16px' : '11px 20px',
-      alignItems: 'center',
-      borderBottom: '1px solid ' + T.color.lineSoft
-    }
-  }, !isPhone && /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 11.5,
       color: T.color.steel400
     }
-  }, window.shortDate(e.date) || '—'), /*#__PURE__*/React.createElement("span", {
+  }, dates.length, " ", dates.length === 1 ? 'delivery' : 'deliveries', " \xB7 ", /*#__PURE__*/React.createElement("b", {
     style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 9,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: badge
-  }, e.mark), !isPhone ? /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.display,
-      fontWeight: 600,
-      fontSize: 13.5,
-      color: T.color.steel200,
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis'
-    }
-  }, e.desc || 'Anchor Bolt') : /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 10,
-      color: T.color.steel400
-    }
-  }, e.by || '—')), /*#__PURE__*/React.createElement("span", {
-    style: {
-      textAlign: 'right',
-      fontFamily: T.font.mono,
-      fontWeight: 700,
-      fontSize: 14,
       color: T.color.green
     }
-  }, "+", e.qty), !isPhone && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: 12,
-      color: e.by ? T.color.steel200 : T.color.steel600
-    }
-  }, e.by || '—'), /*#__PURE__*/React.createElement("button", {
-    onClick: () => onRemove && onRemove(e.mark, e.i),
-    title: "Remove this receipt",
-    style: {
-      color: T.color.steel400,
-      justifySelf: 'end',
-      padding: 3
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "trash",
-    size: 14
-  })))))));
+  }, delivered.length), " on site"), /*#__PURE__*/React.createElement(Segmented, {
+    size: "sm",
+    value: sortDir,
+    onChange: setSortDir,
+    options: [{
+      value: 'desc',
+      label: 'Newest'
+    }, {
+      value: 'asc',
+      label: 'Oldest'
+    }]
+  }))), dates.map(d => {
+    const g = byDate[d];
+    const key = d || '—';
+    const isOpen = open === key;
+    const marks = Object.values(g.byMark).sort((a, b) => String(a.mark).localeCompare(String(b.mark), undefined, {
+      numeric: true
+    }));
+    const who = Object.keys(g.by);
+    return /*#__PURE__*/React.createElement("div", {
+      key: key,
+      style: {
+        borderBottom: '1px solid ' + T.color.lineSoft
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      onClick: () => setOpen(isOpen ? null : key),
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        cursor: 'pointer',
+        padding: isPhone ? '13px 16px' : '14px 20px',
+        background: isOpen ? 'rgba(126,120,240,.06)' : 'transparent'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "inventory",
+      size: 16,
+      style: {
+        color: T.color.green
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0,
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: T.font.display,
+        fontWeight: 700,
+        fontSize: 15.5
+      }
+    }, "Delivery \u2014 ", window.shortDate(d) || 'No date set'), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: T.font.mono,
+        fontSize: 10.5,
+        color: T.color.steel400
+      }
+    }, marks.length, " ", marks.length === 1 ? 'type' : 'types', who.length ? ' · ' + who.join(', ') : '')), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.mono,
+        fontWeight: 700,
+        fontSize: 13,
+        color: T.color.green,
+        background: 'rgba(47,214,166,.12)',
+        border: '1px solid rgba(47,214,166,.3)',
+        borderRadius: T.radius.pill,
+        padding: '3px 11px',
+        whiteSpace: 'nowrap'
+      }
+    }, g.total, " embeds"), /*#__PURE__*/React.createElement(Icon, {
+      name: "chevronDown",
+      size: 16,
+      style: {
+        color: T.color.steel400,
+        transform: isOpen ? 'rotate(180deg)' : 'none',
+        transition: 'transform .2s'
+      }
+    })), isOpen && /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: isPhone ? '2px 16px 14px' : '2px 20px 16px',
+        background: 'rgba(0,0,0,.16)'
+      },
+      onClick: e => e.stopPropagation()
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: MCOLS,
+        gap: 10,
+        fontFamily: T.font.mono,
+        fontSize: 8.5,
+        letterSpacing: '.12em',
+        textTransform: 'uppercase',
+        color: T.color.steel400,
+        padding: '8px 0 6px'
+      }
+    }, /*#__PURE__*/React.createElement("span", null, "Mark \xB7 type \xB7 ", marks.length, " ", marks.length === 1 ? 'type' : 'types'), /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right'
+      }
+    }, "Qty"), /*#__PURE__*/React.createElement("span", null)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6
+      }
+    }, marks.map(m => /*#__PURE__*/React.createElement("div", {
+      key: m.mark,
+      style: {
+        display: 'grid',
+        gridTemplateColumns: MCOLS,
+        gap: 10,
+        alignItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 42,
+        height: 27,
+        borderRadius: 7,
+        display: 'grid',
+        placeItems: 'center',
+        flex: '0 0 auto',
+        background: steelPlate('#26313F', '#1A2230'),
+        border: '1px solid ' + T.color.line,
+        fontFamily: T.font.mono,
+        fontWeight: 700,
+        fontSize: 12,
+        color: T.color.amberHot
+      }
+    }, m.mark), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.font.display,
+        fontWeight: 600,
+        fontSize: 13.5,
+        color: T.color.steel200,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }
+    }, m.desc || 'Anchor Bolt')), /*#__PURE__*/React.createElement("span", {
+      style: {
+        textAlign: 'right',
+        fontFamily: T.font.mono,
+        fontWeight: 700,
+        fontSize: 14,
+        color: T.color.green
+      }
+    }, m.qty), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onBulkDelivery && onBulkDelivery(m.ids, 'none'),
+      title: `Undo — set ${m.mark} (${m.qty}) back to not delivered`,
+      style: {
+        color: T.color.steel400,
+        justifySelf: 'end',
+        padding: 3
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "close",
+      size: 14
+    })))))));
+  }));
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
@@ -2013,8 +2037,7 @@ function SummaryGrid({
   onBulkDelivery,
   onBulkInstall,
   seqMeta = {},
-  groupBy,
-  onLogReceipt
+  groupBy
 }) {
   const [openKey, setOpenKey] = React.useState(null);
   const [secDate, setSecDate] = React.useState(() => new Date().toISOString().slice(0, 10)); // date for "delivered on" + receipt logs
@@ -2410,7 +2433,7 @@ function SummaryGrid({
         name: ic,
         size: 13
       }))), /*#__PURE__*/React.createElement("button", {
-        title: `Log a receipt for ${m.mark}`,
+        title: `Mark a quantity of ${m.mark} delivered on a date`,
         onClick: () => {
           setLogKey(logOpen ? null : lk);
           setLogQty('');
@@ -2428,66 +2451,69 @@ function SummaryGrid({
       }, /*#__PURE__*/React.createElement(Icon, {
         name: "calendar",
         size: 12
-      })))), logOpen && /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 7,
-          padding: '2px 2px 6px',
-          flexWrap: 'wrap'
-        }
-      }, /*#__PURE__*/React.createElement("span", {
-        style: {
-          fontFamily: T.font.mono,
-          fontSize: 10,
-          color: T.color.steel400
-        }
-      }, "Received"), /*#__PURE__*/React.createElement("input", {
-        type: "number",
-        min: "1",
-        value: logQty,
-        onChange: e => setLogQty(e.target.value),
-        placeholder: "Qty",
-        autoFocus: true,
-        onKeyDown: e => {
-          if (e.key === 'Enter' && +logQty > 0) {
-            onLogReceipt && onLogReceipt(m.mark, logQty, secDate);
-            setLogKey(null);
-            setLogQty('');
+      })))), logOpen && (() => {
+        const avail = m.undeliveredIds || [];
+        const markN = () => {
+          const nn = Math.min(Math.max(1, Math.round(+logQty || avail.length)), avail.length);
+          if (nn > 0 && onBulkDelivery) onBulkDelivery(avail.slice(0, nn), 'delivered', secDate);
+          setLogKey(null);
+          setLogQty('');
+        };
+        return /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '2px 2px 6px',
+            flexWrap: 'wrap'
           }
-        },
-        style: {
-          ...inputStyle,
-          width: 64,
-          padding: '6px 8px',
-          fontSize: 12.5,
-          fontFamily: T.font.mono
-        }
-      }), /*#__PURE__*/React.createElement("span", {
-        style: {
-          fontFamily: T.font.mono,
-          fontSize: 10,
-          color: T.color.steel400
-        }
-      }, "of ", m.embeds, " on"), /*#__PURE__*/React.createElement("div", {
-        style: {
-          width: 150
-        }
-      }, /*#__PURE__*/React.createElement(DatePopover, {
-        value: secDate,
-        onChange: setSecDate
-      })), /*#__PURE__*/React.createElement(Btn, {
-        size: "sm",
-        kind: "primary",
-        icon: "plus",
-        onClick: () => {
-          if (+logQty > 0) {
-            onLogReceipt && onLogReceipt(m.mark, logQty, secDate);
-            setLogKey(null);
-            setLogQty('');
+        }, /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontFamily: T.font.mono,
+            fontSize: 10,
+            color: T.color.steel400
           }
-        }
-      }, "Log")));
+        }, "Mark"), /*#__PURE__*/React.createElement("input", {
+          type: "number",
+          min: "1",
+          max: avail.length,
+          value: logQty,
+          onChange: e => setLogQty(e.target.value),
+          placeholder: avail.length,
+          autoFocus: true,
+          disabled: !avail.length,
+          onKeyDown: e => {
+            if (e.key === 'Enter') markN();
+          },
+          style: {
+            ...inputStyle,
+            width: 64,
+            padding: '6px 8px',
+            fontSize: 12.5,
+            fontFamily: T.font.mono,
+            opacity: avail.length ? 1 : .5
+          }
+        }), /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontFamily: T.font.mono,
+            fontSize: 10,
+            color: T.color.steel400
+          }
+        }, "of ", avail.length, " delivered on"), /*#__PURE__*/React.createElement("div", {
+          style: {
+            width: 150
+          }
+        }, /*#__PURE__*/React.createElement(DatePopover, {
+          value: secDate,
+          onChange: setSecDate
+        })), /*#__PURE__*/React.createElement(Btn, {
+          size: "sm",
+          kind: "primary",
+          icon: "check",
+          disabled: !avail.length,
+          onClick: markN
+        }, "Mark"));
+      })());
     }))));
   }));
 }

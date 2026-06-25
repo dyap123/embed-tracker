@@ -18,12 +18,12 @@ function neededInfo(iso){
   const lbl = days<0 ? `${-days}d overdue` : days===0 ? 'due today' : days===1 ? 'tomorrow' : `${days}d`;
   return { days, col, lbl };
 }
-// per-type receiving log (embeds/{mark}.receipts = [{qty,date}, …]) — partial deliveries over time
-function recvList(r){ const x=r&&r.receipts; if(!x) return []; const a=Array.isArray(x)?x:Object.values(x); return a.filter(e=>e&&e.qty!=null); }
-function recvTotal(r){ return recvList(r).reduce((s,e)=>s+(+e.qty||0),0); }
-function recvLast(r){ const d=recvList(r).map(e=>e.date).filter(Boolean).sort(); return d.length?d[d.length-1]:''; }
-// received count, capped to the in-scope qty when a filter is active (receipts are per-mark, not per-seq)
-function recvScoped(r, scopedQty, scoped){ const t=recvTotal(r); return scoped ? Math.min(t, scopedQty||0) : t; }
+const todayISO = ()=> new Date().toISOString().slice(0,10);
+// deliveries are DERIVED from the live plan: a pin counts as "delivered on D" when deliveryState==='delivered'
+// and receivedAt() gives its date. No separate receipts log — marking delivered IS the log.
+function delivPins(pins){ const dS=window.deliveryState; return (pins||[]).filter(e=>dS(e)==='delivered'); }
+function delivByDate(pins){ const m={}; delivPins(pins).forEach(e=>{ const d=window.receivedAt(e)||''; (m[d]||(m[d]={ date:d, qty:0, ids:[] })).qty++; m[d].ids.push(e.id); }); return m; }
+function delivLast(pins){ let d=''; delivPins(pins).forEach(e=>{ const x=window.receivedAt(e)||''; if(x>d) d=x; }); return d; }
 function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType, onSyncQtys, onBulkDelivery, onBulkInstall, canEdit, userName, seqMeta={}, onSetSeqNeeded, wcgPours=[] }){
   const [open, setOpen] = React.useState(null);   // expanded mark
   const [q, setQ] = React.useState('');           // search
@@ -52,6 +52,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const anyFilter = seqFilter!=='all' || delivFilter!=='all';
   // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
   const scoped = embeds.filter(e=> matchSeq(e) && matchDeliv(e));
+  // scoped pins grouped by mark — source for per-mark counts, by-date delivery history, and bulk check-off
+  const markPins = {}; scoped.forEach(e=>{ (markPins[e.mark] || (markPins[e.mark]=[])).push(e); });
 
   // headline stats for the scope — "how many embeds / types in the selected region"
   const stats = { embeds: scoped.length, types: new Set(scoped.map(e=>e.mark).filter(Boolean)).size,
@@ -83,10 +85,10 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
   const matchEmbed = (e)=>{ if(!terms.length) return true; const hay=[e.mark, e.grid, e.typeLabel, e.area, e.stubType, seqLabel(e.sequence)].filter(Boolean).join(' ').toLowerCase();
     return terms.every(t=>hay.includes(t)); };
   const byMarkSort = (a,b)=> String(a.id).localeCompare(String(b.id), undefined, {numeric:true});
-  // received sort by latest receipt date: not-yet-received rows sink to the bottom; ISO dates compare chronologically
-  const byRecv = (dir)=> (a,b)=>{ const ra=recvLast(a), rb=recvLast(b); if(ra===rb) return byMarkSort(a,b);
+  // sort by latest delivered date: never-delivered rows sink to the bottom; ISO dates compare chronologically
+  const byDeliv = (dir)=> (a,b)=>{ const ra=delivLast(markPins[a.id]), rb=delivLast(markPins[b.id]); if(ra===rb) return byMarkSort(a,b);
     if(!ra) return 1; if(!rb) return -1; return dir==='desc' ? (rb<ra?-1:1) : (ra<rb?-1:1); };
-  const sortFn = sortBy==='recvDesc' ? byRecv('desc') : sortBy==='recvAsc' ? byRecv('asc') : byMarkSort;
+  const sortFn = sortBy==='recvDesc' ? byDeliv('desc') : sortBy==='recvAsc' ? byDeliv('asc') : byMarkSort;
   const rows = Object.values(byMark)
     .filter(r=> !anyFilter || (r._pinned||0)>0)   // hide marks with nothing in the active filter scope
     .filter(matchRow)
@@ -102,20 +104,19 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
     const c=di.seq[e.sequence]||(di.seq[e.sequence]={ placed:0, delivered:0, transit:0 });
     c.placed++; const dl=dState(e); if(dl==='delivered') c.delivered++; else if(dl==='transit') c.transit++; });
   // pin ids for a mark within the current sequence scope — used by the bulk check-off buttons
-  function markIds(id){ return scoped.filter(e=>e.mark===id).map(e=>e.id); }
-  // append a receipt to a mark's receiving log (used from the Summary drill-down + table); records who logged it
-  function logReceipt(mark, qty, date){ const nq=Math.round(+qty); if(!mark || !nq || nq<=0) return;
-    const cur = recvList({ receipts:(types[mark]||{}).receipts });
-    onEditType(mark, { id:mark, receipts:[...cur, { qty:nq, date:date||new Date().toISOString().slice(0,10), by:userName||null }] }); }
-  // remove receipt #i from a mark's log (used from the Log view)
-  function removeReceipt(mark, i){ const cur=recvList({ receipts:(types[mark]||{}).receipts }); const next=cur.filter((_,k)=>k!==i);
-    onEditType(mark, { id:mark, receipts: next.length?next:null }); }
+  function markIds(id){ return (markPins[id]||[]).map(e=>e.id); }
+  // mark N not-yet-delivered pins of a mark as delivered on a date (the streamlined "log a delivery" action)
+  function markDelivered(mark, qty, date){ const ps=markPins[mark]||[]; const avail=ps.filter(e=>dState(e)!=='delivered').map(e=>e.id);
+    const nn=Math.min(Math.max(1,Math.round(+qty||avail.length)), avail.length);
+    if(nn>0 && onBulkDelivery) onBulkDelivery(avail.slice(0,nn), 'delivered', date||todayISO()); }
   function expInv(kind){ const data = rows.map(r=>{ const n=num(r); const info=seqInfo[r.id]; const di=delivInfo[r.id];
     const seq={}; SEQS.forEach(s=>{ const c=(info&&info.seq[s])||{pinned:0,inst:0}; seq[s]=c; });
+    const dd=delivByDate(markPins[r.id]);   // delivered, grouped by date → export "Receiving Log" rows
     return { id:r.id, desc:r.desc, seqLabel:r.seq, qty:n.qty, pinned:n.pinned, inst:n.inst,
-      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:recvScoped(r,n.qty,anyFilter), receivedOn:recvLast(r)||'',
+      delivered:n.delv, transit:n.transit, notDelivered:Math.max(0,n.qty-n.delv-n.transit), received:n.delv, receivedOn:delivLast(markPins[r.id])||'',
       remaining:Math.max(0,n.qty-n.inst), pct:n.qty?Math.round(n.inst/n.qty*100):0,
-      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq, receipts:recvList(r) }; });
+      bolts:r.bolts, plate:r.plate, len:r.len, supplier:r.supplier, seq,
+      receipts:Object.values(dd).sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(x=>({ date:x.date, qty:x.qty })) }; });
     window.exportInventory(data, kind, SEQS); }
 
   // ---- summary view: group the in-scope pins and tally embeds / types / delivered / installed ----
@@ -126,8 +127,8 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
       : groupBy==='delivery' ? dState(e) : (e.hasKnife?'knife':e.hasStub?'stub':'plain');   // 'attr'
     visible.forEach(e=>{ const k=keyOf(e); const b=buckets[k]||(buckets[k]={ key:k, marks:new Set(), ids:[], undeliveredIds:[], embeds:0, delivered:0, transit:0, installed:0, byMark:{} });
       b.embeds++; b.marks.add(e.mark); b.ids.push(e.id); const dl=dState(e); if(dl==='delivered') b.delivered++; else { b.undeliveredIds.push(e.id); } if(dl==='transit') b.transit++; if(e.installed) b.installed++;
-      const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, ids:[], embeds:0, delivered:0, transit:0, installed:0 });
-      mm.embeds++; mm.ids.push(e.id); if(dl==='delivered') mm.delivered++; else if(dl==='transit') mm.transit++; if(e.installed) mm.installed++; });
+      const mk=e.mark||'—'; const mm=b.byMark[mk]||(b.byMark[mk]={ mark:mk, ids:[], undeliveredIds:[], embeds:0, delivered:0, transit:0, installed:0 });
+      mm.embeds++; mm.ids.push(e.id); if(dl==='delivered') mm.delivered++; else { mm.undeliveredIds.push(e.id); if(dl==='transit') mm.transit++; } if(e.installed) mm.installed++; });
     const order = groupBy==='sequence' ? SEQS : groupBy==='area' ? (window.AREAS||['A','B','C','D'])
       : groupBy==='delivery' ? (window.DELIVERY_ORDER||['delivered','transit','none']) : ['plain','knife','stub'];
     const label = (k)=> groupBy==='sequence' ? seqLabel(k) : groupBy==='area' ? 'Area '+k
@@ -172,15 +173,15 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
             {q && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400, whiteSpace:'nowrap' }}>{rows.length}</span>}
             {q && <button onClick={()=>setQ('')} title="Clear" style={{ color:T.color.steel400 }}><Icon name="close" size={12}/></button>}
           </div>
-          <Segmented size="sm" value={viewMode} onChange={setViewMode} options={[{value:'table',label:'Table'},{value:'summary',label:'Summary'},{value:'log',label:'Log'}]} />
+          <Segmented size="sm" value={viewMode} onChange={setViewMode} options={[{value:'table',label:'Table'},{value:'summary',label:'Summary'},{value:'log',label:'Deliveries'}]} />
           <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+(sortBy!=='mark'?'rgba(126,120,240,.5)':T.color.line),
             borderRadius:T.radius.md, padding:'0 8px', height:32 }} title="Sort the inventory">
             <Icon name="filter" size={13} style={{ color:sortBy!=='mark'?'#A6A0FF':T.color.steel400 }} />
             <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
               style={{ ...SELECT_STYLE, color:sortBy!=='mark'?'#fff':T.color.steel200 }}>
               <option value="mark" style={SELECT_OPT}>Sort: Mark</option>
-              <option value="recvDesc" style={SELECT_OPT}>Sort: Received (newest)</option>
-              <option value="recvAsc" style={SELECT_OPT}>Sort: Received (oldest)</option>
+              <option value="recvDesc" style={SELECT_OPT}>Sort: Delivered (newest)</option>
+              <option value="recvAsc" style={SELECT_OPT}>Sort: Delivered (oldest)</option>
             </select>
           </div>
           <Btn kind={deadlinesOpen?'primary':'ghost'} size="sm" icon="calendar" onClick={()=>setDeadlinesOpen(o=>!o)} title="Needed-by dates for every sequence">Deadlines</Btn>
@@ -246,9 +247,10 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
         )}
 
         {viewMode==='log' ? (
-          <ReceiptsView types={types} ql={ql} onRemove={removeReceipt} isPhone={isPhone} />
+          <DeliveriesView embeds={embeds.filter(e=>matchSeq(e) && matchEmbed(e))} isPhone={isPhone} onBulkDelivery={onBulkDelivery} canEdit={canEdit}
+            scopeLabel={seqFilter!=='all' ? (seqMode==='wcg'?'WCG · ':'')+seqLabelOf(seqFilter) : ''} />
         ) : viewMode==='summary' ? (
-          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} seqMeta={seqMeta} groupBy={groupBy} onLogReceipt={logReceipt} />
+          <SummaryGrid groups={groups} isPhone={isPhone} onBulkDelivery={onBulkDelivery} onBulkInstall={onBulkInstall} seqMeta={seqMeta} groupBy={groupBy} />
         ) : (
         <Card pad={0} glow style={{ marginTop:18 }}>
           {!isPhone && (
@@ -272,7 +274,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                       background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.amberHot }}>{r.id}</span>
                     <span style={{ minWidth:0 }}>
                       <div style={{ fontFamily:T.font.display, fontWeight:600, fontSize:15.5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.desc||'Anchor Bolt'}{r.knifePlate&&<Badge color={T.color.blue} style={{ marginLeft:8, fontSize:9 }}>KP</Badge>}{r.stubColumn&&<Badge color="#FF9650" style={{ marginLeft:4, fontSize:9 }}>SC</Badge>}</div>
-                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{recvTotal(r)>0?<span style={{ color:T.color.green }}> · Rec’d {recvScoped(r,n.qty,anyFilter)}/{n.qty}{recvLast(r)?' · '+window.shortDate(recvLast(r)):''}</span>:''}</div>
+                      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{r.seq?seqLabel(r.seq):'—'}{r.plate?' · '+r.plate:''}{n.delv>0?<span style={{ color:T.color.green }}> · Delivered {n.delv}/{n.qty}{delivLast(markPins[r.id])?' · '+window.shortDate(delivLast(markPins[r.id])):''}</span>:''}</div>
                     </span>
                   </div>
                   <Num label={isPhone?'Qty':null} v={n.qty} />
@@ -291,8 +293,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
                 {isOpen && <>
-                  <DeliveryControls n={n} ids={markIds(r.id)} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} by={userName}
-                    receipts={r.receipts} onSetReceipts={(arr)=>onEditType(r.id, { id:r.id, receipts:(arr&&arr.length)?arr:null })} />
+                  <DeliveryControls pins={markPins[r.id]||[]} qty={n.qty} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} by={userName} isPhone={isPhone} />
                   <SeqBreakdown info={seqInfo[r.id]} deliv={delivInfo[r.id]} seqs={SEQS} />
                   <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} />
                 </>}
@@ -358,68 +359,59 @@ function DelivCell({ delv, transit, isPhone }){
   );
 }
 
-/* bulk delivery check-off for a mark (scoped to the current sequence filter) — open to all signed-in users */
-/* receiving log — log "received N on date D" as many times as needed; accumulates toward the type's qty */
-function ReceiptLog({ qty, receipts, onChange, by }){
-  const list = recvList({ receipts });
-  const total = list.reduce((s,e)=>s+(+e.qty||0),0);
-  const outstanding = Math.max(0, (qty||0) - total);
-  const [addQty, setAddQty] = React.useState('');
-  const [addDate, setAddDate] = React.useState(()=> new Date().toISOString().slice(0,10));
-  function add(){ const nq=Math.round(+addQty); if(!nq || nq<=0 || !onChange) return;
-    onChange([...list, { qty:nq, date:addDate||new Date().toISOString().slice(0,10), by:by||null }]); setAddQty(''); }
-  function remove(i){ if(onChange) onChange(list.filter((_,k)=>k!==i)); }
-  const indexed = list.map((e,i)=>({ e, i })).sort((a,b)=> String(b.e.date||'').localeCompare(String(a.e.date||'')));
-  return (
-    <div>
-      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
-        <span style={{ fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Receiving log</span>
-        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel300 }}>received <b style={{ color:T.color.green }}>{total}</b> of {qty||'—'} · <b style={{ color:outstanding>0?T.color.red:T.color.green }}>{outstanding}</b> outstanding</span>
-      </div>
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, flexWrap:'wrap' }}>
-        <input type="number" min="1" value={addQty} onChange={e=>setAddQty(e.target.value)} placeholder="Qty"
-          onKeyDown={e=>{ if(e.key==='Enter') add(); }} style={{ ...inputStyle, width:74, padding:'7px 9px', fontSize:13, fontFamily:T.font.mono }} />
-        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>received on</span>
-        <div style={{ width:158 }}><DatePopover value={addDate} onChange={setAddDate} /></div>
-        <Btn size="sm" kind="primary" icon="plus" onClick={add}>Log receipt</Btn>
-      </div>
-      <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:8 }}>
-        {indexed.length===0 && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel600 }}>No receipts logged yet.</span>}
-        {indexed.map(({e,i})=>(
-          <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 11px', borderRadius:8, background:'rgba(47,214,166,.08)', border:'1px solid rgba(47,214,166,.25)' }}>
-            <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13.5, color:T.color.green }}>{e.qty}</span>
-            <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>received</span>
-            <span style={{ fontFamily:T.font.mono, fontSize:12, color:'#fff' }}>{window.shortDate(e.date)||'—'}</span>
-            <button onClick={()=>remove(i)} title="Remove receipt" style={{ marginLeft:'auto', color:T.color.steel400, padding:2 }}><Icon name="close" size={13}/></button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DeliveryControls({ n, ids, seqFilter, onBulkDelivery, receipts, onSetReceipts, by }){
-  const notDel = Math.max(0, (n.qty||n.pinned||0) - n.delv - n.transit);
+/* per-mark delivery — enter how many arrived on a date (the streamlined "log a delivery": marks that many
+   pins delivered → turns the plan dots green), set the whole mark, and see the by-date history. Open to all. */
+function DeliveryControls({ pins, qty, seqFilter, onBulkDelivery, by, isPhone }){
+  const dS = window.deliveryState;
+  const ids = (pins||[]).map(e=>e.id);
+  const delivered = (pins||[]).filter(e=>dS(e)==='delivered');
+  const transit   = (pins||[]).filter(e=>dS(e)==='transit');
+  const notYet    = (pins||[]).filter(e=>dS(e)!=='delivered');   // none + on the way
+  const avail = notYet.length;
   const scope = seqFilter==='all' ? 'all sequences' : seqLabel(seqFilter);
+  const [addQty, setAddQty] = React.useState('');
+  const [date, setDate]     = React.useState(todayISO);
+  function markDeliv(){ const nn=Math.min(Math.max(1,Math.round(+addQty||avail)), avail);
+    if(nn>0 && onBulkDelivery) onBulkDelivery(notYet.slice(0,nn).map(e=>e.id), 'delivered', date); setAddQty(''); }
+  const set = (status)=> ids.length && onBulkDelivery && onBulkDelivery(ids, status, status==='delivered'?date:undefined);
+  const hist = Object.values(delivByDate(pins)).sort((a,b)=> String(b.date).localeCompare(String(a.date)));
   const B = (status, label, rgb) => (
-    <button onClick={()=>ids.length && onBulkDelivery && onBulkDelivery(ids, status)} disabled={!ids.length}
-      style={{ flex:1, padding:'9px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:12, letterSpacing:'.03em',
+    <button onClick={()=>set(status)} disabled={!ids.length}
+      style={{ flex:1, padding:'8px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.03em',
         background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
   );
   return (
     <div style={{ padding:'12px 20px 0' }}>
-      {/* receiving log — record partial deliveries (qty received on a date); independent of the plan */}
-      <ReceiptLog qty={n.qty} receipts={receipts} onChange={onSetReceipts} by={by} />
-      <span style={{ display:'block', marginTop:16, fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivery status on plan · {ids.length} pins · {scope}</span>
-      <div style={{ display:'flex', gap:7, marginTop:8 }}>
-        {B('delivered','Delivered','47,214,166')}
-        {B('transit','On the way','245,194,75')}
-        {B('none','Not delivered','240,85,107')}
+      <span style={{ display:'block', fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Log a delivery · {ids.length} pins · {scope}</span>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, flexWrap:'wrap', padding:'9px 11px', borderRadius:T.radius.md, background:'rgba(47,214,166,.07)', border:'1px solid rgba(47,214,166,.28)' }}>
+        <input type="number" min="1" max={avail} value={addQty} onChange={e=>setAddQty(e.target.value)} placeholder={avail||0} disabled={!avail}
+          onKeyDown={e=>{ if(e.key==='Enter') markDeliv(); }} style={{ ...inputStyle, width:70, padding:'7px 9px', fontSize:13, fontFamily:T.font.mono, opacity:avail?1:.5 }} />
+        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>of {avail} delivered on</span>
+        <div style={{ width:154 }}><DatePopover value={date} onChange={setDate} /></div>
+        <Btn size="sm" kind="primary" icon="check" disabled={!avail} onClick={markDeliv} style={{ marginLeft:'auto' }}>Mark delivered</Btn>
       </div>
-      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:8 }}>
-        Delivered <b style={{ color:T.color.green }}>{n.delv}</b> · On the way <b style={{ color:T.color.yellow }}>{n.transit}</b> · Not <b style={{ color:T.color.red }}>{notDel}</b>
+      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:6 }}>
+        Delivered <b style={{ color:T.color.green }}>{delivered.length}</b> · On the way <b style={{ color:T.color.yellow }}>{transit.length}</b> · Not delivered <b style={{ color:T.color.red }}>{notYet.length-transit.length}</b> of {qty||ids.length}
         <span style={{ color:T.color.steel600 }}> · colors the plan dots</span>
       </div>
+      <div style={{ display:'flex', gap:7, marginTop:10 }}>
+        {B('delivered','All delivered','47,214,166')}
+        {B('transit','All on the way','245,194,75')}
+        {B('none','All not delivered','240,85,107')}
+      </div>
+      {hist.length>0 && <>
+        <span style={{ display:'block', marginTop:14, fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivered on</span>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:7, marginTop:8 }}>
+          {hist.map(h=>(
+            <div key={h.date||'—'} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 6px 5px 11px', borderRadius:T.radius.pill, background:'rgba(47,214,166,.08)', border:'1px solid rgba(47,214,166,.25)' }}>
+              <span style={{ fontFamily:T.font.mono, fontSize:12, color:'#fff' }}>{window.shortDate(h.date)||'No date'}</span>
+              <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:12.5, color:T.color.green }}>×{h.qty}</span>
+              <button onClick={()=>onBulkDelivery && onBulkDelivery(h.ids, 'none')} title="Undo this delivery (set those pins back to not delivered)"
+                style={{ width:20, height:20, display:'grid', placeItems:'center', borderRadius:5, color:T.color.steel400 }}><Icon name="close" size={12}/></button>
+            </div>
+          ))}
+        </div>
+      </>}
     </div>
   );
 }
@@ -506,57 +498,78 @@ function SequencesPanel({ embeds, seqMeta={}, onSetSeqNeeded, wcgPours=[], isPho
   );
 }
 
-/* Log view — chronological inventory log of every receipt across all types (date · mark · qty · who logged it) */
-function ReceiptsView({ types, ql, onRemove, isPhone }){
-  const all = [];
-  Object.values(types||{}).forEach(t=>{ if(!t||!t.id) return; recvList(t).forEach((rc,i)=>{ all.push({ mark:t.id, desc:t.desc, qty:+rc.qty||0, date:rc.date||'', by:rc.by||'', i }); }); });
-  const terms = (ql||'').split(/\s+/).filter(Boolean);
-  const filtered = all.filter(e=> !terms.length || terms.every(t=> (e.mark+' '+(e.desc||'')).toLowerCase().includes(t)));
-  filtered.sort((a,b)=> String(b.date).localeCompare(String(a.date)) || String(a.mark).localeCompare(String(b.mark), undefined, {numeric:true}));
-  const totalQty = filtered.reduce((s,e)=>s+e.qty,0);
-  const byDate = {}; filtered.forEach(e=>{ (byDate[e.date]=byDate[e.date]||[]).push(e); });
-  const dates = Object.keys(byDate).sort((a,b)=> String(b).localeCompare(String(a)));
-  if(!filtered.length) return <Card pad={22} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400, lineHeight:1.6 }}>No deliveries logged yet. Log receipts from a type's row (<b style={{ color:'#fff' }}>Table</b> → expand a mark) or from the <b style={{ color:'#fff' }}>Summary</b> view.</div></Card>;
-  const COLS = isPhone ? '1fr 50px 26px' : '92px 1.4fr 70px 1.1fr 28px';
-  const badge = { width:42, height:28, borderRadius:7, display:'grid', placeItems:'center', flex:'0 0 auto', background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12, color:T.color.amberHot };
+/* Deliveries view — every delivery grouped by the date it arrived ("Delivery on ___"), derived live from the
+   plan (deliveryState). Sort newest/oldest; expand a date to see exactly what was delivered + undo a mistake. */
+function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }){
+  const dS = window.deliveryState;
+  const [sortDir, setSortDir] = React.useState('desc');
+  const [open, setOpen] = React.useState(null);
+  const delivered = (embeds||[]).filter(e=> dS(e)==='delivered');
+  // group delivered pins by the date they arrived → { date, total, by:{name}, byMark:{mark:{qty,ids,desc}} }
+  const byDate = {};
+  delivered.forEach(e=>{ const d=window.receivedAt(e)||''; const g=byDate[d]||(byDate[d]={ date:d, total:0, by:{}, byMark:{} });
+    g.total++; if(e.deliveredBy) g.by[e.deliveredBy]=1;
+    const mk=e.mark||'—'; const m=g.byMark[mk]||(g.byMark[mk]={ mark:mk, desc:e.typeLabel, qty:0, ids:[] }); m.qty++; m.ids.push(e.id); });
+  let dates = Object.keys(byDate).filter(d=>d!=='');
+  dates.sort((a,b)=> sortDir==='desc' ? String(b).localeCompare(String(a)) : String(a).localeCompare(String(b)));
+  if(byDate['']) dates.push('');   // undated deliveries always sink to the bottom
+  if(!delivered.length) return <Card pad={22} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400, lineHeight:1.6 }}>No deliveries yet. Mark what's arrived from a mark's row (<b style={{ color:'#fff' }}>Table</b> → expand a mark → <b style={{ color:'#fff' }}>Mark delivered</b>) or from the <b style={{ color:'#fff' }}>Summary</b> view — each one shows up here grouped by the date it arrived.</div></Card>;
+  const MCOLS = '1fr 56px 30px';
   return (
     <Card pad={0} glow style={{ marginTop:18 }}>
-      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:10, padding:'14px 20px', borderBottom:'1px solid '+T.color.line }}>
-        <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.03em' }}>Delivery log</span>
-        <span style={{ fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400 }}>{filtered.length} receipts · <b style={{ color:T.color.green }}>{totalQty}</b> received</span>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap', padding:'14px 20px', borderBottom:'1px solid '+T.color.line }}>
+        <div>
+          <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.03em' }}>Deliveries</span>
+          {scopeLabel && <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400, marginLeft:8 }}>· {scopeLabel}</span>}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <span style={{ fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400 }}>{dates.length} {dates.length===1?'delivery':'deliveries'} · <b style={{ color:T.color.green }}>{delivered.length}</b> on site</span>
+          <Segmented size="sm" value={sortDir} onChange={setSortDir} options={[{value:'desc',label:'Newest'},{value:'asc',label:'Oldest'}]} />
+        </div>
       </div>
-      {!isPhone && (
-        <div style={{ display:'grid', gridTemplateColumns:COLS, gap:12, padding:'10px 20px', borderBottom:'1px solid '+T.color.lineSoft, fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>
-          <span>Date</span><span>Mark · type</span><span style={{ textAlign:'right' }}>Qty</span><span>Logged by</span><span/>
-        </div>
-      )}
-      {dates.map(d=>(
-        <div key={d}>
-          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 20px', background:'rgba(30,58,107,.14)', fontFamily:T.font.mono, fontSize:11, color:T.color.steel300 }}>
-            <span style={{ fontWeight:700, color:'#fff' }}>{window.shortDate(d)||'No date'}</span>
-            <span><b style={{ color:T.color.green }}>{byDate[d].reduce((s,e)=>s+e.qty,0)}</b> received</span>
-          </div>
-          {byDate[d].map((e,k)=>(
-            <div key={k} style={{ display:'grid', gridTemplateColumns:COLS, gap:12, padding:isPhone?'11px 16px':'11px 20px', alignItems:'center', borderBottom:'1px solid '+T.color.lineSoft }}>
-              {!isPhone && <span style={{ fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400 }}>{window.shortDate(e.date)||'—'}</span>}
-              <span style={{ display:'flex', alignItems:'center', gap:9, minWidth:0 }}>
-                <span style={badge}>{e.mark}</span>
-                {!isPhone ? <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13.5, color:T.color.steel200, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{e.desc||'Anchor Bolt'}</span>
-                          : <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>{e.by||'—'}</span>}
-              </span>
-              <span style={{ textAlign:'right', fontFamily:T.font.mono, fontWeight:700, fontSize:14, color:T.color.green }}>+{e.qty}</span>
-              {!isPhone && <span style={{ fontFamily:T.font.mono, fontSize:12, color:e.by?T.color.steel200:T.color.steel600 }}>{e.by||'—'}</span>}
-              <button onClick={()=>onRemove && onRemove(e.mark, e.i)} title="Remove this receipt" style={{ color:T.color.steel400, justifySelf:'end', padding:3 }}><Icon name="trash" size={14}/></button>
+      {dates.map(d=>{ const g=byDate[d]; const key=d||'—'; const isOpen=open===key;
+        const marks=Object.values(g.byMark).sort((a,b)=>String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true}));
+        const who=Object.keys(g.by);
+        return (
+          <div key={key} style={{ borderBottom:'1px solid '+T.color.lineSoft }}>
+            <div onClick={()=>setOpen(isOpen?null:key)} style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', padding:isPhone?'13px 16px':'14px 20px', background:isOpen?'rgba(126,120,240,.06)':'transparent' }}>
+              <Icon name="inventory" size={16} style={{ color:T.color.green }} />
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15.5 }}>Delivery — {window.shortDate(d)||'No date set'}</div>
+                <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{marks.length} {marks.length===1?'type':'types'}{who.length?' · '+who.join(', '):''}</div>
+              </div>
+              <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13, color:T.color.green, background:'rgba(47,214,166,.12)', border:'1px solid rgba(47,214,166,.3)', borderRadius:T.radius.pill, padding:'3px 11px', whiteSpace:'nowrap' }}>{g.total} embeds</span>
+              <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s' }} />
             </div>
-          ))}
-        </div>
-      ))}
+            {isOpen && (
+              <div style={{ padding:isPhone?'2px 16px 14px':'2px 20px 16px', background:'rgba(0,0,0,.16)' }} onClick={e=>e.stopPropagation()}>
+                <div style={{ display:'grid', gridTemplateColumns:MCOLS, gap:10, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400, padding:'8px 0 6px' }}>
+                  <span>Mark · type · {marks.length} {marks.length===1?'type':'types'}</span><span style={{ textAlign:'right' }}>Qty</span><span/>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {marks.map(m=>(
+                    <div key={m.mark} style={{ display:'grid', gridTemplateColumns:MCOLS, gap:10, alignItems:'center' }}>
+                      <span style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+                        <span style={{ width:42, height:27, borderRadius:7, display:'grid', placeItems:'center', flex:'0 0 auto', background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12, color:T.color.amberHot }}>{m.mark}</span>
+                        <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13.5, color:T.color.steel200, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.desc||'Anchor Bolt'}</span>
+                      </span>
+                      <span style={{ textAlign:'right', fontFamily:T.font.mono, fontWeight:700, fontSize:14, color:T.color.green }}>{m.qty}</span>
+                      <button onClick={()=>onBulkDelivery && onBulkDelivery(m.ids, 'none')} title={`Undo — set ${m.mark} (${m.qty}) back to not delivered`}
+                        style={{ color:T.color.steel400, justifySelf:'end', padding:3 }}><Icon name="close" size={14}/></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </Card>
   );
 }
 
 /* summary view — one card per group (sequence / area / delivery / type); click a card to drill into its marks */
-function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy, onLogReceipt }){
+function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={}, groupBy }){
   const [openKey, setOpenKey] = React.useState(null);
   const [secDate, setSecDate] = React.useState(()=> new Date().toISOString().slice(0,10));   // date for "delivered on" + receipt logs
   const [secQty, setSecQty] = React.useState('');     // partial qty to mark delivered for the open section
@@ -653,24 +666,27 @@ function SummaryGrid({ groups, isPhone, onBulkDelivery, onBulkInstall, seqMeta={
                             <Icon name={ic} size={13} />
                           </button>
                         ))}
-                        <button title={`Log a receipt for ${m.mark}`} onClick={()=>{ setLogKey(logOpen?null:lk); setLogQty(''); }}
+                        <button title={`Mark a quantity of ${m.mark} delivered on a date`} onClick={()=>{ setLogKey(logOpen?null:lk); setLogQty(''); }}
                           style={{ width:23, height:23, display:'grid', placeItems:'center', borderRadius:6,
                             background:logOpen?'rgba(245,194,75,.3)':'rgba(245,194,75,.14)', border:'1px solid rgba(245,194,75,.5)', color:'#F5C24B' }}>
                           <Icon name="calendar" size={12} />
                         </button>
                       </div>
                     </div>
-                    {logOpen && (
+                    {logOpen && (()=>{ const avail=m.undeliveredIds||[];
+                      const markN=()=>{ const nn=Math.min(Math.max(1,Math.round(+logQty||avail.length)), avail.length);
+                        if(nn>0 && onBulkDelivery) onBulkDelivery(avail.slice(0,nn), 'delivered', secDate); setLogKey(null); setLogQty(''); };
+                      return (
                       <div style={{ display:'flex', alignItems:'center', gap:7, padding:'2px 2px 6px', flexWrap:'wrap' }}>
-                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>Received</span>
-                        <input type="number" min="1" value={logQty} onChange={e=>setLogQty(e.target.value)} placeholder="Qty" autoFocus
-                          onKeyDown={e=>{ if(e.key==='Enter' && +logQty>0){ onLogReceipt && onLogReceipt(m.mark, logQty, secDate); setLogKey(null); setLogQty(''); } }}
-                          style={{ ...inputStyle, width:64, padding:'6px 8px', fontSize:12.5, fontFamily:T.font.mono }} />
-                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>of {m.embeds} on</span>
+                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>Mark</span>
+                        <input type="number" min="1" max={avail.length} value={logQty} onChange={e=>setLogQty(e.target.value)} placeholder={avail.length} autoFocus disabled={!avail.length}
+                          onKeyDown={e=>{ if(e.key==='Enter') markN(); }}
+                          style={{ ...inputStyle, width:64, padding:'6px 8px', fontSize:12.5, fontFamily:T.font.mono, opacity:avail.length?1:.5 }} />
+                        <span style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400 }}>of {avail.length} delivered on</span>
                         <div style={{ width:150 }}><DatePopover value={secDate} onChange={setSecDate} /></div>
-                        <Btn size="sm" kind="primary" icon="plus" onClick={()=>{ if(+logQty>0){ onLogReceipt && onLogReceipt(m.mark, logQty, secDate); setLogKey(null); setLogQty(''); } }}>Log</Btn>
+                        <Btn size="sm" kind="primary" icon="check" disabled={!avail.length} onClick={markN}>Mark</Btn>
                       </div>
-                    )}
+                      ); })()}
                     </React.Fragment>
                   ); })}
                 </div>
