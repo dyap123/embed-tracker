@@ -293,7 +293,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
                   {!isPhone && <Icon name="chevronDown" size={16} style={{ color:T.color.steel400, transform:isOpen?'rotate(180deg)':'none', transition:'transform .2s', justifySelf:'end' }} />}
                 </div>
                 {isOpen && <>
-                  <DeliveryControls pins={markPins[r.id]||[]} qty={n.qty} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} by={userName} isPhone={isPhone} />
+                  <DeliveryControls pins={markPins[r.id]||[]} seqFilter={seqFilter} onBulkDelivery={onBulkDelivery} isPhone={isPhone} />
                   <SeqBreakdown info={seqInfo[r.id]} deliv={delivInfo[r.id]} seqs={SEQS} />
                   <TypeEditor row={r} qty={n.qty} canEdit={canEdit} onSave={(patch)=>onEditType(r.id, patch)} onDelete={onDeleteType?()=>{ onDeleteType(r.id); setOpen(null); }:null} />
                 </>}
@@ -359,46 +359,68 @@ function DelivCell({ delv, transit, isPhone }){
   );
 }
 
-/* per-mark delivery — enter how many arrived on a date (the streamlined "log a delivery": marks that many
-   pins delivered → turns the plan dots green), set the whole mark, and see the by-date history. Open to all. */
-function DeliveryControls({ pins, qty, seqFilter, onBulkDelivery, by, isPhone }){
+/* per-mark delivery — set HOW MANY are delivered / on the way / not delivered (quantities, not all-or-nothing).
+   Newly-delivered get the chosen date; existing dated deliveries are preserved. Open to all signed-in users. */
+function DeliveryControls({ pins, seqFilter, onBulkDelivery, isPhone }){
   const dS = window.deliveryState;
-  const ids = (pins||[]).map(e=>e.id);
-  const delivered = (pins||[]).filter(e=>dS(e)==='delivered');
-  const transit   = (pins||[]).filter(e=>dS(e)==='transit');
-  const notYet    = (pins||[]).filter(e=>dS(e)!=='delivered');   // none + on the way
-  const avail = notYet.length;
+  const arr = pins||[];
+  const total = arr.length;
+  const installedN = arr.filter(e=>e.installed).length;          // installed pins are locked-delivered
+  const curDeliv   = arr.filter(e=>dS(e)==='delivered').length;
+  const curTransit = arr.filter(e=>dS(e)==='transit').length;
+  const curNone    = total - curDeliv - curTransit;
   const scope = seqFilter==='all' ? 'all sequences' : seqLabel(seqFilter);
-  const [addQty, setAddQty] = React.useState('');
-  const [date, setDate]     = React.useState(todayISO);
-  function markDeliv(){ const nn=Math.min(Math.max(1,Math.round(+addQty||avail)), avail);
-    if(nn>0 && onBulkDelivery) onBulkDelivery(notYet.slice(0,nn).map(e=>e.id), 'delivered', date); setAddQty(''); }
-  const set = (status)=> ids.length && onBulkDelivery && onBulkDelivery(ids, status, status==='delivered'?date:undefined);
+  const [qD,setQD] = React.useState(String(curDeliv));
+  const [qT,setQT] = React.useState(String(curTransit));
+  const [date,setDate] = React.useState(todayISO);
+  // re-sync the inputs to live counts (e.g. another user marks something while this is open)
+  React.useEffect(()=>{ setQD(String(curDeliv)); setQT(String(curTransit)); }, [curDeliv,curTransit,total]);
+  const D = Math.max(installedN, Math.min(total, Math.round(+qD||0)));   // delivered ≥ installed
+  const T = Math.max(0, Math.min(total-D, Math.round(+qT||0)));
+  const N = total-D-T;
+  const dirty = D!==curDeliv || T!==curTransit;
+  const setNot = (v)=>{ const n=Math.max(0, Math.min(total-D, Math.round(+v||0))); setQT(String(total-D-n)); };
+  function apply(){
+    if(!dirty || !onBulkDelivery) return;
+    const movable = arr.filter(e=>!e.installed);
+    const need = { delivered: D-installedN, transit: T, none: N };
+    const tgt = new Map();
+    for(const e of movable){ const s=dS(e); if(need[s]>0){ tgt.set(e.id,s); need[s]--; } }   // keep in place (preserves dates)
+    for(const e of movable){ if(tgt.has(e.id)) continue; for(const s of ['delivered','transit','none']){ if(need[s]>0){ tgt.set(e.id,s); need[s]--; break; } } }
+    const toD=[],toT=[],toN=[];
+    for(const e of movable){ const t=tgt.get(e.id), c=dS(e);
+      if(t==='delivered'){ if(c!=='delivered' || !window.receivedAt(e)) toD.push(e.id); }   // newly delivered, or legacy w/ no date → stamp
+      else if(t!==c){ (t==='transit'?toT:toN).push(e.id); } }
+    if(toD.length) onBulkDelivery(toD, 'delivered', date||todayISO());
+    if(toT.length) onBulkDelivery(toT, 'transit');
+    if(toN.length) onBulkDelivery(toN, 'none');
+  }
   const hist = Object.values(delivByDate(pins)).sort((a,b)=> String(b.date).localeCompare(String(a.date)));
-  const B = (status, label, rgb) => (
-    <button onClick={()=>set(status)} disabled={!ids.length}
-      style={{ flex:1, padding:'8px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.03em',
-        background:`rgba(${rgb},.14)`, border:`1px solid rgba(${rgb},.5)`, color:`rgb(${rgb})`, opacity:ids.length?1:.4, cursor:ids.length?'pointer':'default' }}>{label}</button>
+  const Fld = (label, val, onCh, rgb, extra) => (
+    <div style={{ flex:'1 1 110px', minWidth:96 }}>
+      <div style={{ fontFamily:T.font.mono, fontSize:9, letterSpacing:'.09em', textTransform:'uppercase', color:`rgb(${rgb})`, marginBottom:5 }}>{label}</div>
+      <input type="number" min="0" max={total} value={val} onChange={e=>onCh(e.target.value)} disabled={!total}
+        style={{ ...inputStyle, width:'100%', padding:'9px 8px', fontSize:17, fontFamily:T.font.mono, fontWeight:700, textAlign:'center', color:`rgb(${rgb})`, border:`1px solid rgba(${rgb},.45)`, background:`rgba(${rgb},.07)` }} />
+      {extra}
+    </div>
   );
   return (
     <div style={{ padding:'12px 20px 0' }}>
-      <span style={{ display:'block', fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Log a delivery · {ids.length} pins · {scope}</span>
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, flexWrap:'wrap', padding:'9px 11px', borderRadius:T.radius.md, background:'rgba(47,214,166,.07)', border:'1px solid rgba(47,214,166,.28)' }}>
-        <input type="number" min="1" max={avail} value={addQty} onChange={e=>setAddQty(e.target.value)} placeholder={avail||0} disabled={!avail}
-          onKeyDown={e=>{ if(e.key==='Enter') markDeliv(); }} style={{ ...inputStyle, width:70, padding:'7px 9px', fontSize:13, fontFamily:T.font.mono, opacity:avail?1:.5 }} />
-        <span style={{ fontFamily:T.font.mono, fontSize:11, color:T.color.steel400 }}>of {avail} delivered on</span>
-        <div style={{ width:154 }}><DatePopover value={date} onChange={setDate} /></div>
-        <Btn size="sm" kind="primary" icon="check" disabled={!avail} onClick={markDeliv} style={{ marginLeft:'auto' }}>Mark delivered</Btn>
+      <span style={{ display:'block', fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>How many are… · {total} pins · {scope}</span>
+      <div style={{ display:'flex', gap:10, marginTop:9, flexWrap:'wrap', alignItems:'flex-start' }}>
+        {Fld('Qty delivered', qD, setQD, '47,214,166',
+          <div style={{ marginTop:6 }}><DatePopover value={date} onChange={setDate} /></div>)}
+        {Fld('Qty on the way', qT, setQT, '245,194,75')}
+        {Fld('Qty not delivered', String(N), setNot, '240,85,107')}
       </div>
-      <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400, marginTop:6 }}>
-        Delivered <b style={{ color:T.color.green }}>{delivered.length}</b> · On the way <b style={{ color:T.color.yellow }}>{transit.length}</b> · Not delivered <b style={{ color:T.color.red }}>{notYet.length-transit.length}</b> of {qty||ids.length}
-        <span style={{ color:T.color.steel600 }}> · colors the plan dots</span>
-      </div>
-      <div style={{ display:'flex', gap:7, marginTop:10 }}>
-        {B('delivered','All delivered','47,214,166')}
-        {B('transit','All on the way','245,194,75')}
-        {B('none','All not delivered','240,85,107')}
-      </div>
+      {installedN>0 && <div style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel500, marginTop:7 }}>{installedN} already installed — always counts as delivered.</div>}
+      <button onClick={apply} disabled={!dirty}
+        style={{ width:'100%', marginTop:12, padding:'14px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:800, fontSize:15, letterSpacing:'.03em',
+          background: dirty?'linear-gradient(180deg,#3FE3B0,#1FBE86)':'rgba(47,214,166,.16)', color: dirty?'#06140e':'rgba(47,214,166,.55)',
+          border:'1px solid '+(dirty?'#2FD6A6':'rgba(47,214,166,.3)'), boxShadow: dirty?'0 8px 22px -8px rgba(47,214,166,.75)':'none', cursor:dirty?'pointer':'default', transition:'all .15s' }}>
+        {dirty ? `Mark delivered — ${D} delivered · ${T} on the way · ${N} not` : 'Up to date'}
+      </button>
+      {dirty && date && <div style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400, marginTop:6, textAlign:'center' }}>New deliveries dated {window.shortDate(date)} · colors the plan dots</div>}
       {hist.length>0 && <>
         <span style={{ display:'block', marginTop:14, fontFamily:T.font.mono, fontSize:9.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400 }}>Delivered on</span>
         <div style={{ display:'flex', flexWrap:'wrap', gap:7, marginTop:8 }}>
@@ -507,8 +529,8 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
   const delivered = (embeds||[]).filter(e=> dS(e)==='delivered');
   // group delivered pins by the date they arrived → { date, total, by:{name}, byMark:{mark:{qty,ids,desc}} }
   const byDate = {};
-  delivered.forEach(e=>{ const d=window.receivedAt(e)||''; const g=byDate[d]||(byDate[d]={ date:d, total:0, by:{}, byMark:{} });
-    g.total++; if(e.deliveredBy) g.by[e.deliveredBy]=1;
+  delivered.forEach(e=>{ const d=window.receivedAt(e)||''; const g=byDate[d]||(byDate[d]={ date:d, total:0, ids:[], by:{}, byMark:{} });
+    g.total++; g.ids.push(e.id); if(e.deliveredBy) g.by[e.deliveredBy]=1;
     const mk=e.mark||'—'; const m=g.byMark[mk]||(g.byMark[mk]={ mark:mk, desc:e.typeLabel, qty:0, ids:[] }); m.qty++; m.ids.push(e.id); });
   let dates = Object.keys(byDate).filter(d=>d!=='');
   dates.sort((a,b)=> sortDir==='desc' ? String(b).localeCompare(String(a)) : String(a).localeCompare(String(b)));
@@ -532,10 +554,10 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
         const who=Object.keys(g.by);
         return (
           <div key={key} style={{ borderBottom:'1px solid '+T.color.lineSoft }}>
-            <div onClick={()=>setOpen(isOpen?null:key)} style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', padding:isPhone?'13px 16px':'14px 20px', background:isOpen?'rgba(126,120,240,.06)':'transparent' }}>
-              <Icon name="inventory" size={16} style={{ color:T.color.green }} />
+            <div onClick={()=>setOpen(isOpen?null:key)} style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', padding:isPhone?'13px 16px':'14px 20px', background:isOpen?'rgba(126,120,240,.06)':(d?'transparent':'rgba(245,194,75,.05)') }}>
+              <Icon name={d?'inventory':'calendar'} size={16} style={{ color:d?T.color.green:T.color.yellow }} />
               <div style={{ minWidth:0, flex:1 }}>
-                <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15.5 }}>Delivery — {window.shortDate(d)||'No date set'}</div>
+                <div style={{ fontFamily:T.font.display, fontWeight:700, fontSize:15.5, color:d?'#fff':T.color.yellow }}>{d?`Delivery — ${window.shortDate(d)}`:'No date set — tap to assign'}</div>
                 <div style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel400 }}>{marks.length} {marks.length===1?'type':'types'}{who.length?' · '+who.join(', '):''}</div>
               </div>
               <span style={{ fontFamily:T.font.mono, fontWeight:700, fontSize:13, color:T.color.green, background:'rgba(47,214,166,.12)', border:'1px solid rgba(47,214,166,.3)', borderRadius:T.radius.pill, padding:'3px 11px', whiteSpace:'nowrap' }}>{g.total} embeds</span>
@@ -543,6 +565,7 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
             </div>
             {isOpen && (
               <div style={{ padding:isPhone?'2px 16px 14px':'2px 20px 16px', background:'rgba(0,0,0,.16)' }} onClick={e=>e.stopPropagation()}>
+                <DeliveryDateAssign date={d} ids={g.ids} onBulkDelivery={onBulkDelivery} />
                 <div style={{ display:'grid', gridTemplateColumns:MCOLS, gap:10, fontFamily:T.font.mono, fontSize:8.5, letterSpacing:'.12em', textTransform:'uppercase', color:T.color.steel400, padding:'8px 0 6px' }}>
                   <span>Mark · type · {marks.length} {marks.length===1?'type':'types'}</span><span style={{ textAlign:'right' }}>Qty</span><span/>
                 </div>
@@ -565,6 +588,23 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
         );
       })}
     </Card>
+  );
+}
+
+/* assign / change the date on a whole delivery (restamps every pin in the group) — fixes legacy dateless ones */
+function DeliveryDateAssign({ date, ids, onBulkDelivery }){
+  const [d,setD] = React.useState(()=> date || todayISO());
+  const changed = (d||'') !== (date||'');
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:9, flexWrap:'wrap', padding:'9px 11px', margin:'8px 0 4px', borderRadius:T.radius.md,
+      background: date?'rgba(126,120,240,.06)':'rgba(245,194,75,.07)', border:'1px solid '+(date?T.color.line:'rgba(245,194,75,.35)') }}>
+      <span style={{ fontFamily:T.font.mono, fontSize:10.5, color:T.color.steel300 }}>{date?'Delivery date':'Set the date this arrived'}</span>
+      <div style={{ width:160 }}><DatePopover value={d} onChange={setD} /></div>
+      <Btn size="sm" kind="primary" icon="check" disabled={!d || !changed}
+        onClick={()=>{ if(d && ids && ids.length && onBulkDelivery) onBulkDelivery(ids, 'delivered', d); }} style={{ marginLeft:'auto' }}>
+        {date?'Update date':'Set date'}
+      </Btn>
+    </div>
   );
 }
 
