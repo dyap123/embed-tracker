@@ -544,7 +544,7 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
     return byDateAsc(a.date,b.date) || String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true}); });
   if(!delivered.length) return <Card pad={22} glow style={{ marginTop:18 }}><div style={{ fontFamily:T.font.mono, fontSize:12.5, color:T.color.steel400, lineHeight:1.6 }}>No deliveries yet. Mark what's arrived from a mark's row (<b style={{ color:'#fff' }}>Table</b> → expand a mark → <b style={{ color:'#fff' }}>Mark delivered</b>) or from the <b style={{ color:'#fff' }}>Summary</b> view — each one shows up here grouped by the date it arrived.</div></Card>;
   const MCOLS = '1fr 56px 30px';
-  const LCOLS = isPhone ? '74px 1fr 46px 28px' : '96px 1.5fr 60px 1fr 30px';   // All-view: date | mark·type | qty | by | undo
+  const LCOLS = isPhone ? '138px 1fr 34px 24px' : '160px 1.3fr 56px 0.9fr 30px';   // All-view: date (editable) | mark·type | qty | by | undo
   const badge = { width:42, height:27, borderRadius:7, display:'grid', placeItems:'center', flex:'0 0 auto', background:steelPlate('#26313F','#1A2230'), border:'1px solid '+T.color.line, fontFamily:T.font.mono, fontWeight:700, fontSize:12, color:T.color.amberHot };
   return (
     <Card pad={0} glow style={{ marginTop:18 }}>
@@ -566,8 +566,8 @@ function DeliveriesView({ embeds, isPhone, onBulkDelivery, canEdit, scopeLabel }
           </div>
         )}
         {lineItems.map((li,i)=>(
-          <div key={(li.date||'—')+'|'+li.mark} style={{ display:'grid', gridTemplateColumns:LCOLS, gap:12, alignItems:'center', padding:isPhone?'11px 16px':'11px 20px', borderBottom: i<lineItems.length-1?'1px solid '+T.color.lineSoft:'none' }}>
-            <span style={{ fontFamily:T.font.mono, fontSize:isPhone?10.5:11.5, fontWeight:li.date?400:700, color:li.date?T.color.steel300:T.color.yellow }}>{window.shortDate(li.date)||'No date'}</span>
+          <div key={(li.date||'—')+'|'+li.mark} style={{ display:'grid', gridTemplateColumns:LCOLS, gap:isPhone?8:12, alignItems:'center', padding:isPhone?'10px 14px':'10px 20px', borderBottom: i<lineItems.length-1?'1px solid '+T.color.lineSoft:'none' }}>
+            <DatePopover value={li.date} onChange={d=>{ if(d && onBulkDelivery) onBulkDelivery(li.ids, 'delivered', d); }} />
             <span style={{ display:'flex', alignItems:'center', gap:9, minWidth:0 }}>
               <span style={badge}>{li.mark}</span>
               {!isPhone && <span style={{ fontFamily:T.font.display, fontWeight:600, fontSize:13.5, color:T.color.steel200, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{li.desc||'Anchor Bolt'}</span>}

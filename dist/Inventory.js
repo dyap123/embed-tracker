@@ -1868,7 +1868,7 @@ function DeliveriesView({
     }
   }, "Summary"), " view \u2014 each one shows up here grouped by the date it arrived."));
   const MCOLS = '1fr 56px 30px';
-  const LCOLS = isPhone ? '74px 1fr 46px 28px' : '96px 1.5fr 60px 1fr 30px'; // All-view: date | mark·type | qty | by | undo
+  const LCOLS = isPhone ? '138px 1fr 34px 24px' : '160px 1.3fr 56px 0.9fr 30px'; // All-view: date (editable) | mark·type | qty | by | undo
   const badge = {
     width: 42,
     height: 27,
@@ -1975,19 +1975,17 @@ function DeliveriesView({
     style: {
       display: 'grid',
       gridTemplateColumns: LCOLS,
-      gap: 12,
+      gap: isPhone ? 8 : 12,
       alignItems: 'center',
-      padding: isPhone ? '11px 16px' : '11px 20px',
+      padding: isPhone ? '10px 14px' : '10px 20px',
       borderBottom: i < lineItems.length - 1 ? '1px solid ' + T.color.lineSoft : 'none'
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: T.font.mono,
-      fontSize: isPhone ? 10.5 : 11.5,
-      fontWeight: li.date ? 400 : 700,
-      color: li.date ? T.color.steel300 : T.color.yellow
+  }, /*#__PURE__*/React.createElement(DatePopover, {
+    value: li.date,
+    onChange: d => {
+      if (d && onBulkDelivery) onBulkDelivery(li.ids, 'delivered', d);
     }
-  }, window.shortDate(li.date) || 'No date'), /*#__PURE__*/React.createElement("span", {
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
       display: 'flex',
       alignItems: 'center',
