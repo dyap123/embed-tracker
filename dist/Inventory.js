@@ -1232,9 +1232,9 @@ function DeliveryControls({
     setQT(String(curTransit));
   }, [curDeliv, curTransit, total]);
   const D = Math.max(installedN, Math.min(total, Math.round(+qD || 0))); // delivered ≥ installed
-  const T = Math.max(0, Math.min(total - D, Math.round(+qT || 0)));
-  const N = total - D - T;
-  const dirty = D !== curDeliv || T !== curTransit;
+  const Tq = Math.max(0, Math.min(total - D, Math.round(+qT || 0))); // NB: not `T` — that's the global design tokens
+  const N = total - D - Tq;
+  const dirty = D !== curDeliv || Tq !== curTransit;
   const setNot = v => {
     const n = Math.max(0, Math.min(total - D, Math.round(+v || 0)));
     setQT(String(total - D - n));
@@ -1244,7 +1244,7 @@ function DeliveryControls({
     const movable = arr.filter(e => !e.installed);
     const need = {
       delivered: D - installedN,
-      transit: T,
+      transit: Tq,
       none: N
     };
     const tgt = new Map();
@@ -1371,7 +1371,7 @@ function DeliveryControls({
       cursor: dirty ? 'pointer' : 'default',
       transition: 'all .15s'
     }
-  }, dirty ? `Mark delivered — ${D} delivered · ${T} on the way · ${N} not` : 'Up to date'), dirty && date && /*#__PURE__*/React.createElement("div", {
+  }, dirty ? `Mark delivered — ${D} delivered · ${Tq} on the way · ${N} not` : 'Up to date'), dirty && date && /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: T.font.mono,
       fontSize: 10,

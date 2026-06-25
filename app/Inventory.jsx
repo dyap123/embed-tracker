@@ -376,14 +376,14 @@ function DeliveryControls({ pins, seqFilter, onBulkDelivery, isPhone }){
   // re-sync the inputs to live counts (e.g. another user marks something while this is open)
   React.useEffect(()=>{ setQD(String(curDeliv)); setQT(String(curTransit)); }, [curDeliv,curTransit,total]);
   const D = Math.max(installedN, Math.min(total, Math.round(+qD||0)));   // delivered ≥ installed
-  const T = Math.max(0, Math.min(total-D, Math.round(+qT||0)));
-  const N = total-D-T;
-  const dirty = D!==curDeliv || T!==curTransit;
+  const Tq = Math.max(0, Math.min(total-D, Math.round(+qT||0)));         // NB: not `T` — that's the global design tokens
+  const N = total-D-Tq;
+  const dirty = D!==curDeliv || Tq!==curTransit;
   const setNot = (v)=>{ const n=Math.max(0, Math.min(total-D, Math.round(+v||0))); setQT(String(total-D-n)); };
   function apply(){
     if(!dirty || !onBulkDelivery) return;
     const movable = arr.filter(e=>!e.installed);
-    const need = { delivered: D-installedN, transit: T, none: N };
+    const need = { delivered: D-installedN, transit: Tq, none: N };
     const tgt = new Map();
     for(const e of movable){ const s=dS(e); if(need[s]>0){ tgt.set(e.id,s); need[s]--; } }   // keep in place (preserves dates)
     for(const e of movable){ if(tgt.has(e.id)) continue; for(const s of ['delivered','transit','none']){ if(need[s]>0){ tgt.set(e.id,s); need[s]--; break; } } }
@@ -418,7 +418,7 @@ function DeliveryControls({ pins, seqFilter, onBulkDelivery, isPhone }){
         style={{ width:'100%', marginTop:12, padding:'14px 0', borderRadius:T.radius.md, fontFamily:T.font.display, fontWeight:800, fontSize:15, letterSpacing:'.03em',
           background: dirty?'linear-gradient(180deg,#3FE3B0,#1FBE86)':'rgba(47,214,166,.16)', color: dirty?'#06140e':'rgba(47,214,166,.55)',
           border:'1px solid '+(dirty?'#2FD6A6':'rgba(47,214,166,.3)'), boxShadow: dirty?'0 8px 22px -8px rgba(47,214,166,.75)':'none', cursor:dirty?'pointer':'default', transition:'all .15s' }}>
-        {dirty ? `Mark delivered — ${D} delivered · ${T} on the way · ${N} not` : 'Up to date'}
+        {dirty ? `Mark delivered — ${D} delivered · ${Tq} on the way · ${N} not` : 'Up to date'}
       </button>
       {dirty && date && <div style={{ fontFamily:T.font.mono, fontSize:10, color:T.color.steel400, marginTop:6, textAlign:'center' }}>New deliveries dated {window.shortDate(date)} · colors the plan dots</div>}
       {hist.length>0 && <>
