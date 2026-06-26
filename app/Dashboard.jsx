@@ -5,7 +5,7 @@ function Dashboard({ embeds, zones=[], isPhone }){
   const k = kpis(view);
   const series = installSeries(view);
   const [toast, setToast] = React.useState(null);
-  function exp(kind){ const f = window.exportEmbeds(view, kind); if(f){ setToast(f); setTimeout(()=>setToast(null), 2600); } }
+  async function exp(kind){ const f = await window.exportEmbeds(view, kind); if(f){ setToast(f); setTimeout(()=>setToast(null), 2600); } }
 
   const dCounts = { delivered: view.filter(e=>deliveryState(e)==='delivered').length,
     transit: view.filter(e=>deliveryState(e)==='transit').length,

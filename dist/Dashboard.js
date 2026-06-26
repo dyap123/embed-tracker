@@ -9,8 +9,8 @@ function Dashboard({
   const k = kpis(view);
   const series = installSeries(view);
   const [toast, setToast] = React.useState(null);
-  function exp(kind) {
-    const f = window.exportEmbeds(view, kind);
+  async function exp(kind) {
+    const f = await window.exportEmbeds(view, kind);
     if (f) {
       setToast(f);
       setTimeout(() => setToast(null), 2600);

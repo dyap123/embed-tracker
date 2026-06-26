@@ -1,8 +1,8 @@
-/* EmbedYap — mock data layer
-   Shapes mirror a Firebase collection so a real data layer drops in cleanly.
-   Embeds carry normalized coords (nx,ny in 0..1) over the blueprint image. */
-
-function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+/* EmbedYap — data layer
+   Live: pinToEmbed maps Firebase `pins` onto the UI embed shape; grid math
+   (colX/rowY/gridIdx); KPI + summary derivations; crew seed; remarks.
+   (The old procedural mock-embed generator was removed — it was unused; the
+   app derives everything from Firebase `pins`.) */
 
 // ---- column grid (A–Z left→right, rows 33→8 top→bottom) -----------
 const GRID_COLS = Array.from({length:26}, (_,i)=>String.fromCharCode(65+i)); // A..Z
@@ -45,8 +45,6 @@ const AREAS = ['A','B','C','D'];
 function seqLabel(s){ return s && /^\d+$/.test(String(s)) ? 'Seq '+s : (s||''); }
 window.seqLabel = seqLabel;
 
-function pickWeighted(rng, items){ let r=rng(); for(const it of items){ if((r-=it.w)<=0) return it; } return items[items.length-1]; }
-
 // area by quadrant of the plan; pour ties sequence to a concrete placement
 function areaFor(cx, cy){
   const left = cx < (GRID_COLS.length-1)/2;
@@ -56,60 +54,6 @@ function areaFor(cx, cy){
   if (!top && left) return 'C';
   return 'D';
 }
-// progressively less complete A→D so the dashboard tells a story
-const AREA_PROGRESS = { A:0.86, B:0.62, C:0.40, D:0.17 };
-
-function buildEmbeds(){
-  const rng = mulberry32(20260603);
-  const out = [];
-  let n = {};
-  for (let ci=0; ci<GRID_COLS.length; ci++){
-    for (let ri=0; ri<GRID_ROWS.length; ri++){
-      // skip roughly half the intersections to leave aisles / openings (~340 pins)
-      if (rng() < 0.48) continue;
-      const area = areaFor(ci, ri);
-      const tp = pickWeighted(rng, EMBED_TYPES);
-      const jx = (rng()-0.5)*0.018, jy=(rng()-0.5)*0.020;
-      const nx = colX(ci)+jx, ny = rowY(ri)+jy;
-      const code = tp.code;
-      n[code] = (n[code]||0)+1;
-      const id = `${code}-${String(n[code]).padStart(3,'0')}`;
-      const sequence = SEQUENCES[Math.floor(rng()*SEQUENCES.length)];
-      const phase = PHASES[Math.min(3, Math.floor(rng()*4))];
-      const installed = rng() < AREA_PROGRESS[area];
-      const hasKnife = tp.key==='knife' || rng() < 0.10;
-      const hasStub = tp.key==='stub' || rng() < 0.08;
-      out.push({
-        id, type: tp.key, typeLabel: tp.label, code,
-        grid: `${GRID_COLS[ci]}-${GRID_ROWS[ri]}`,
-        nx:+nx.toFixed(4), ny:+ny.toFixed(4),
-        sequence, phase, area, pour: `${area}·P${sequence}`,
-        installed, hasKnife, hasStub,
-        installedAt: installed ? dayOffset(rng) : null,
-        rfi: null,
-      });
-    }
-  }
-  return out;
-}
-function dayOffset(rng){ // a date within the last ~40 days
-  const d = new Date(2026,4,3); d.setDate(d.getDate() - Math.floor(rng()*40)); return d.toISOString().slice(0,10);
-}
-
-let EMBEDS = buildEmbeds();
-
-// attach a handful of RFIs
-const RFI_SEED = [
-  { status:'Open',     description:'Anchor pattern conflicts with PT tendon at column. Need revised bolt layout from EOR.', links:[{label:'RFI-218 · BIM 360', url:'https://acc.autodesk.com/rfi/218'}] },
-  { status:'Answered', description:'Knife plate slot orientation — confirm rotation 90° per detail 7/S-501.', links:[{label:'Detail 7/S-501', url:'https://drive.google.com/file/d/1abc'},{label:'RFI-204', url:'https://acc.autodesk.com/rfi/204'}] },
-  { status:'Closed',   description:'Embed post elevation revised +1.5" to match topping slab. Resolved in field.', links:[] },
-  { status:'Open',     description:'Coupler thread spec mismatch with rebar submittal — hold pour until verified.', links:[{label:'Submittal 03-21', url:'https://drive.google.com/file/d/2def'}] },
-  { status:'Open',     description:'Stub column baseplate weld access tight against form. Requesting clarification.', links:[{label:'Photo set', url:'https://drive.google.com/drive/folders/3ghi'}] },
-];
-(function seedRFI(){
-  const rng = mulberry32(7); let assigned=0;
-  for (const e of EMBEDS){ if(assigned>=RFI_SEED.length) break; if(rng()<0.03){ const s=RFI_SEED[assigned]; e.rfi={ number:`RFI-${218-assigned}`, ...s }; assigned++; } }
-})();
 
 // ---- crew ---------------------------------------------------------------
 const CREW = [
@@ -119,19 +63,6 @@ const CREW = [
   { id:'moises', name:'Moises Espinoza', role:'PE · PWJV',          pin:'050103', initials:'ME', installs:0, points:0, manager:true },
   { id:'freddy', name:'Freddy',         role:'PE · SME',            pin:'050103', initials:'FR', installs:0, points:0, manager:true },
 ];
-
-// ---- inventory ----------------------------------------------------------
-function buildInventory(){
-  const by = {};
-  for (const t of EMBED_TYPES) by[t.key]={ type:t.label, code:t.code, pinned:0, installed:0 };
-  for (const e of EMBEDS){ by[e.type].pinned++; if(e.installed) by[e.type].installed++; }
-  const expected = { anchor:430, knife:230, post:170, coupler:150, stub:110 };
-  return EMBED_TYPES.map(t=>{
-    const row = by[t.key]; const exp = expected[t.key];
-    return { ...row, expected: exp, remaining: exp - row.installed };
-  });
-}
-const INVENTORY = buildInventory();
 
 // ---- derived helpers ----------------------------------------------------
 function pinState(e){
@@ -263,15 +194,8 @@ function installSeries(embeds){
   let cum=0; return days.map(d=>({ date:d, day:+d.slice(8), n:counts[d], cum:(cum+=counts[d]) }));
 }
 
-const POURS = [
-  { id:'B·P2', area:'B', seq:'2', date:'2026-06-05', label:'Area B · Pour 2', embeds:0 },
-  { id:'C·P1', area:'C', seq:'1', date:'2026-06-09', label:'Area C · Pour 1', embeds:0 },
-  { id:'D·P1', area:'D', seq:'1', date:'2026-06-14', label:'Area D · Pour 1', embeds:0 },
-];
-POURS.forEach(p=>{ p.embeds = EMBEDS.filter(e=>e.area===p.area && e.sequence===p.seq && !e.installed).length; });
-
 Object.assign(window, {
-  EMBEDS, CREW, INVENTORY, EMBED_TYPES, SEQUENCES, PHASES, AREAS, GRID_COLS, GRID_ROWS, PLAN, POURS,
+  CREW, EMBED_TYPES, SEQUENCES, PHASES, AREAS, GRID_COLS, GRID_ROWS, PLAN,
   pinState, deliveryState, receivedAt, kpis, installSeries, colX, rowY,
   setGridCfg, gridCols, gridRows, gridPlan, cumFrac,
 });

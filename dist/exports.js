@@ -15,6 +15,60 @@
     if (window.jspdf && typeof window.jspdf.autoTable === 'function') return window.jspdf.autoTable(doc, opts);
     throw new Error('autotable plugin missing');
   }
+
+  // ---- lazy-load the heavy export libs only when an export actually runs ----
+  // SheetJS (~1MB) + jsPDF/autotable (~0.4MB) are no longer in index.html; they
+  // load on the first XLSX/PDF export, so a normal page view never pays for them.
+  const LIB = {
+    xlsx: 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js',
+    jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    autotable: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'
+  };
+  const _loading = {};
+  function loadScript(url) {
+    if (_loading[url]) return _loading[url];
+    return _loading[url] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = url;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        delete _loading[url];
+        reject(new Error('Failed to load ' + url));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  async function ensureXLSX() {
+    if (!window.XLSX) {
+      try {
+        await loadScript(LIB.xlsx);
+      } catch (e) {}
+    }
+    return haveXLSX();
+  }
+  async function ensurePDF() {
+    if (!jsPDFctor()) {
+      try {
+        await loadScript(LIB.jspdf);
+      } catch (e) {}
+    }
+    try {
+      await loadScript(LIB.autotable);
+    } catch (e) {} // attaches autoTable to the jsPDF prototype
+    return !!jsPDFctor();
+  }
+  // show a wait cursor while a first-time lib download is in flight
+  async function withBusy(p) {
+    const b = document.body && document.body.style;
+    const prev = b ? b.cursor : '';
+    if (b) b.cursor = 'progress';
+    try {
+      return await p;
+    } finally {
+      if (b) b.cursor = prev || '';
+    }
+  }
   // ---- CSV helpers ----
   function esc(v) {
     v = v == null ? '' : String(v);
@@ -304,7 +358,18 @@
   }
 
   // ================= Embeds / Dashboard report =================
-  function exportEmbeds(embeds, kind) {
+  async function exportEmbeds(embeds, kind) {
+    if (kind === 'xlsx') {
+      if (!(await withBusy(ensureXLSX()))) {
+        alert('Excel library failed to load (offline?)');
+        return;
+      }
+    } else if (kind !== 'csv') {
+      if (!(await withBusy(ensurePDF()))) {
+        alert('PDF library failed to load (offline?)');
+        return;
+      }
+    }
     const rows = embedRows(embeds),
       dates = byDate(embeds),
       sum = summary(embeds),
@@ -635,7 +700,18 @@
   }
 
   // ================= Inventory report =================
-  function exportInventory(rows, kind, seqs) {
+  async function exportInventory(rows, kind, seqs) {
+    if (kind === 'xlsx') {
+      if (!(await withBusy(ensureXLSX()))) {
+        alert('Excel library failed to load (offline?)');
+        return;
+      }
+    } else if (kind !== 'csv') {
+      if (!(await withBusy(ensurePDF()))) {
+        alert('PDF library failed to load (offline?)');
+        return;
+      }
+    }
     const fname = `EmbedYap_Inventory_${stamp()}`;
     const SQ = seqs || [];
     const data = rows.map(r => {

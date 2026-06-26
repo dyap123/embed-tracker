@@ -50,9 +50,10 @@
 <!-- Firebase backend (shared project · namespace embed-tracker) + Ironworker Run backend -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<!-- perf: the export libs (SheetJS ~1MB + jsPDF/autotable ~0.4MB) are NOT loaded here.
+     They lazy-load on first CSV/XLSX/PDF export via app/exports.js, so a normal page
+     view (which never exports) doesn't pay ~1.4MB on the critical path. -->
+
 <script>
 (function(){
   const NS='embed-tracker';
