@@ -43,10 +43,10 @@
 </head>
 <body>
 <div id="root"></div>
-<!-- perf: production React (was development build) + JSX is now precompiled to dist/ at build time,
-     so @babel/standalone (in-browser compiler, ~2.7MB) is no longer shipped. -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<!-- nano: in-house ~React-compatible runtime (vanilla, zero deps, no CDN, no build).
+     Defines window.React / window.ReactDOM so the precompiled components run unchanged.
+     Replaced the React + ReactDOM UMD CDN scripts. See vendor/nano.js. -->
+<script src="vendor/nano.js"></script>
 <!-- Firebase backend (shared project · namespace embed-tracker) + Ironworker Run backend -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
