@@ -283,6 +283,47 @@ function microtasks() { return new Promise(function (r) { setTimeout(r, 0); }); 
     eq(text(root.firstChild), '12', 'falsy child removed, fragment remains');
   })();
 
+  /* 13. conditional sibling must NOT remount the input (focus/caret bug regression).
+        A `{cond && <span/>}` that toggles each render shifts naive positional
+        indices and would replace the following <input>, losing focus. Implicit
+        keys (null slots still consume an index) must keep the input node stable. */
+  (function () {
+    var root = new El('root'); var r = ReactDOM.createRoot(root);
+    function Pin(val) {
+      return h('div', null,
+        (val.length % 2 === 1) && h('span', null, 'odd'),  // banner toggles each keystroke
+        h('input', { type: 'text', value: val })
+      );
+    }
+    r.render(Pin(''));
+    var input = root.firstChild.childNodes[0];
+    eq(input.tagName, 'INPUT', 'input is first child when banner hidden');
+    r.render(Pin('a'));   // banner appears -> input shifts to index 1
+    var last = root.firstChild.childNodes[root.firstChild.childNodes.length - 1];
+    ok(last === input, 'input node REUSED when a conditional sibling appears (focus safe)');
+    r.render(Pin('ab'));  // banner hidden again
+    ok(root.firstChild.childNodes[0] === input, 'input node REUSED when conditional sibling disappears');
+    r.render(Pin('abc'));
+    ok(root.firstChild.childNodes[1] === input, 'input node stable across repeated toggles');
+  })();
+
+  /* 14. keyed map followed by a stable input (Inventory search pattern):
+        typing rebuilds the results list; the input above must persist. */
+  (function () {
+    var root = new El('root'); var r = ReactDOM.createRoot(root);
+    function Search(q, rows) {
+      return h('div', null,
+        h('input', { type: 'text', value: q }),
+        h('ul', null, rows.map(function (x) { return h('li', { key: x }, x); }))
+      );
+    }
+    r.render(Search('', ['a', 'b', 'c']));
+    var input = root.firstChild.childNodes[0];
+    r.render(Search('b', ['b']));
+    ok(root.firstChild.childNodes[0] === input, 'search input persists while results list rebuilds');
+    eq(root.firstChild.childNodes[1].childNodes.length, 1, 'results list updated to 1 row');
+  })();
+
   console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + '  —  ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail === 0 ? 0 : 1);
 })();

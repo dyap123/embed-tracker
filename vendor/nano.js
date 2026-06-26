@@ -97,19 +97,31 @@
     flat(children, out);
     return out;
   }
-  function flat(c, out) {
-    if (c == null || c === false || c === true) return;
-    if (Array.isArray(c)) {
-      for (var i = 0; i < c.length; i++) flat(c[i], out);
-      return;
+  // Walk an authored children value. Null/false/true children are SKIPPED
+  // but still consume their positional index, so a surviving sibling's
+  // implicit key (_ik) stays stable when a conditional `{cond && <x/>}`
+  // toggles. That stability is what lets the reconciler reuse (not remount)
+  // existing DOM nodes — which is what keeps input focus/caret alive.
+  function flat(children, out) { flatLevel(children, out, ''); }
+  function flatLevel(children, out, prefix) {
+    if (Array.isArray(children)) {
+      for (var i = 0; i < children.length; i++) flatOne(children[i], out, prefix, i);
+    } else {
+      flatOne(children, out, prefix, 0);
     }
+  }
+  function flatOne(c, out, prefix, idx) {
+    if (c == null || c === false || c === true) return; // skip; idx already reserved
+    if (Array.isArray(c)) { flatLevel(c, out, prefix + idx + '.'); return; }
     var t = typeof c;
     if (t === 'string' || t === 'number') {
-      out.push({ type: TEXT, props: { nodeValue: String(c) }, key: null, ref: null });
+      out.push({ type: TEXT, props: { nodeValue: String(c) }, key: null, ref: null, _ik: prefix + idx });
       return;
     }
-    out.push(c); // assume vnode
+    c._ik = (c.key != null) ? ('k:' + c.key) : (prefix + idx); // implicit positional key
+    out.push(c);
   }
+  function keyOf(x) { return x.key != null ? ('k:' + x.key) : x._ik; }
 
   /* ============================================================
      hooks dispatcher state
@@ -369,11 +381,11 @@
 
   function mount(vnode, parentDom, ns, depth) {
     if (vnode.type === TEXT) {
-      return { kind: 'text', dom: doc.createTextNode(vnode.props.nodeValue), vnode: vnode, key: vnode.key, type: TEXT, depth: depth };
+      return { kind: 'text', dom: doc.createTextNode(vnode.props.nodeValue), vnode: vnode, key: vnode.key, _ik: vnode._ik, type: TEXT, depth: depth };
     }
     if (typeof vnode.type === 'function') {
       var inst = {
-        kind: 'fn', type: vnode.type, props: vnode.props, vnode: vnode, key: vnode.key,
+        kind: 'fn', type: vnode.type, props: vnode.props, vnode: vnode, key: vnode.key, _ik: vnode._ik,
         hooks: [], children: [], depth: depth, parentDom: parentDom, ns: ns,
         isMemo: !!vnode.type._memo, _mounted: true, dirty: false
       };
@@ -382,7 +394,7 @@
       return inst;
     }
     if (vnode.type === Fragment) {
-      var finst = { kind: 'frag', type: Fragment, vnode: vnode, key: vnode.key, children: [], depth: depth, parentDom: parentDom, ns: ns, _mounted: true };
+      var finst = { kind: 'frag', type: Fragment, vnode: vnode, key: vnode.key, _ik: vnode._ik, children: [], depth: depth, parentDom: parentDom, ns: ns, _mounted: true };
       finst.children = mountChildren(flatten(vnode.props.children), parentDom, ns, depth + 1);
       return finst;
     }
@@ -390,7 +402,7 @@
     var elementNs = (ns === NS_SVG || vnode.type === 'svg') ? NS_SVG : null;
     var childNs = (vnode.type === 'foreignObject') ? null : elementNs;
     var dom = elementNs ? doc.createElementNS(NS_SVG, vnode.type) : doc.createElement(vnode.type);
-    var hinst = { kind: 'host', dom: dom, type: vnode.type, vnode: vnode, key: vnode.key, children: [], depth: depth, parentDom: parentDom, ns: elementNs, childNs: childNs, _mounted: true };
+    var hinst = { kind: 'host', dom: dom, type: vnode.type, vnode: vnode, key: vnode.key, _ik: vnode._ik, children: [], depth: depth, parentDom: parentDom, ns: elementNs, childNs: childNs, _mounted: true };
     setInitialProps(dom, vnode.props, elementNs);
     hinst.children = mountChildren(flatten(vnode.props.children), dom, childNs, depth + 1);
     if (vnode.ref) applyRef(vnode.ref, dom);
@@ -412,8 +424,6 @@
     if (vnode.type === TEXT) return inst.kind === 'text';
     return inst.type === vnode.type;
   }
-  function resolveKey(vnode, i) { return vnode.key != null ? 'k:' + vnode.key : 'i:' + i; }
-
   function patch(inst, vnode, parentDom, ns) {
     if (inst.kind === 'text') {
       var nv = vnode.props.nodeValue;
@@ -455,18 +465,16 @@
     var map = null;
     if (old.length) {
       map = {};
-      for (var i = 0; i < old.length; i++) {
-        var ik = old[i].key != null ? 'k:' + old[i].key : 'i:' + i;
-        map[ik] = old[i];
-      }
+      for (var i = 0; i < old.length; i++) map[keyOf(old[i])] = old[i];
     }
     var claimed = old.length ? new Set() : null;
     var newInsts = new Array(newVnodes.length);
     for (var n = 0; n < newVnodes.length; n++) {
       var cv = newVnodes[n];
-      var cand = map ? map[resolveKey(cv, n)] : null;
+      var cand = map ? map[keyOf(cv)] : null;
       if (cand && !claimed.has(cand) && sameType(cand, cv)) {
         claimed.add(cand);
+        cand._ik = cv._ik;
         patch(cand, cv, parentDom, ns);
         newInsts[n] = cand;
       } else {
