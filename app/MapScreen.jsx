@@ -246,7 +246,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
         const prev = pd.ids.filter(id=>pd.base[id]).map(id=>({ id, x:pd.base[id].nx, y:pd.base[id].ny }));
         const next = pd.ids.filter(id=>pd.last[id]).map(id=>({ id, x:+pd.last[id].nx.toFixed(4), y:+pd.last[id].ny.toFixed(4) }));
         pushUndo({ type:'pinMove', moves:prev }); onMovePins(next);
-      } else { setSelId(pd.hitId); setSelPins([]); }   // click without drag → select & show detail
+      } else { setSelId(prev=> prev===pd.hitId ? null : pd.hitId); setSelPins([]); }   // click without drag → toggle: select & show detail, or dismiss if already selected
       return; }
     if (vdrag.current){ commitLive(vdrag.current.id); vdrag.current=null; return; }
     if (sdrag.current){ commitLive(sdrag.current.id); sdrag.current=null; return; }
@@ -345,11 +345,22 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
       else if (manager && (e.key==='Delete'||e.key==='Backspace')){
         if(selPins.length){ e.preventDefault(); requestDeletePins(selPins); }
         else if(selZone){ e.preventDefault(); deleteZone(selZone); } }
-      else if (e.key==='Escape'){ if(poly.length){ setPoly([]); setDrawMode('off'); } else if(drawMode!=='off'){ setDrawMode('off'); } else { setSelZone(null); setReshape(false); setSelPins([]); } }
+      else if (e.key==='Escape'){
+        // spam Esc to peel back one layer at a time: dialogs → drawing → selected item → selections
+        if(confirm){ setConfirm(null); }
+        else if(editZone){ setEditZone(null); }
+        else if(infoZone){ setInfoZone(null); }
+        else if(poly.length){ setPoly([]); setDrawMode('off'); }
+        else if(drawMode!=='off'){ setDrawMode('off'); }
+        else if(selId){ setSelId(null); }                       // dismiss the selected pin's detail panel
+        else if(selPins.length){ setSelPins([]); }              // clear a multi-selection
+        else if(selZone){ setSelZone(null); setReshape(false); } // deselect a zone
+        else if(showPours){ setShowPours(false); }
+      }
       else if (manager && e.key==='Enter'){ if(drawMode==='poly'&&poly.length>=3){ e.preventDefault(); finishPoly(); } }
     }
     window.addEventListener('keydown', onKey); return ()=>window.removeEventListener('keydown', onKey);
-  },[manager, selId, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
+  },[manager, selId, selZone, selPins, poly, drawMode, editZone, infoZone, confirm, showPours, zones, liveZones, visibleKey()]);
   function visibleKey(){ return embeds.length+'/'+filter+'/'+cat+'/'+stub+'/'+q; }
 
   // ---- derived ----

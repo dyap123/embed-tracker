@@ -726,9 +726,9 @@ function MapScreen({
         });
         onMovePins(next);
       } else {
-        setSelId(pd.hitId);
+        setSelId(prev => prev === pd.hitId ? null : pd.hitId);
         setSelPins([]);
-      } // click without drag → select & show detail
+      } // click without drag → toggle: select & show detail, or dismiss if already selected
       return;
     }
     if (vdrag.current) {
@@ -1125,15 +1125,30 @@ function MapScreen({
           deleteZone(selZone);
         }
       } else if (e.key === 'Escape') {
-        if (poly.length) {
+        // spam Esc to peel back one layer at a time: dialogs → drawing → selected item → selections
+        if (confirm) {
+          setConfirm(null);
+        } else if (editZone) {
+          setEditZone(null);
+        } else if (infoZone) {
+          setInfoZone(null);
+        } else if (poly.length) {
           setPoly([]);
           setDrawMode('off');
         } else if (drawMode !== 'off') {
           setDrawMode('off');
-        } else {
+        } else if (selId) {
+          setSelId(null);
+        } // dismiss the selected pin's detail panel
+        else if (selPins.length) {
+          setSelPins([]);
+        } // clear a multi-selection
+        else if (selZone) {
           setSelZone(null);
           setReshape(false);
-          setSelPins([]);
+        } // deselect a zone
+        else if (showPours) {
+          setShowPours(false);
         }
       } else if (manager && e.key === 'Enter') {
         if (drawMode === 'poly' && poly.length >= 3) {
@@ -1144,7 +1159,7 @@ function MapScreen({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [manager, selId, selZone, selPins, poly, drawMode, zones, liveZones, visibleKey()]);
+  }, [manager, selId, selZone, selPins, poly, drawMode, editZone, infoZone, confirm, showPours, zones, liveZones, visibleKey()]);
   function visibleKey() {
     return embeds.length + '/' + filter + '/' + cat + '/' + stub + '/' + q;
   }
