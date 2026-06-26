@@ -324,6 +324,26 @@ function microtasks() { return new Promise(function (r) { setTimeout(r, 0); }); 
     eq(root.firstChild.childNodes[1].childNodes.length, 1, 'results list updated to 1 row');
   })();
 
+  /* 15. THE focus bug: a sibling COMPONENT (its own DOM node) sharing the parent
+        with a focused input. When the component re-renders it must not disturb the
+        input's position (which would re-insert -> blur it). Regression for the
+        anchor-threading fix. Mirrors SignIn's <Icon/> + <input/> dock. */
+  (function () {
+    var root = new El('root'); var r = ReactDOM.createRoot(root);
+    function Glyph(p) { return h('svg', { 'data-k': p.k }, h('path', null)); } // component renders an element
+    function Row(val) { return h('div', null, h(Glyph, { k: val }), h('input', { type: 'text', value: val })); }
+    r.render(Row('a'));
+    var row = root.firstChild;
+    var input = row.childNodes[row.childNodes.length - 1];
+    eq(input.tagName, 'INPUT', 'input is the last child initially');
+    var moves = 0; var realIns = El.prototype.insertBefore;
+    El.prototype.insertBefore = function (n, ref) { if (n === input) moves++; return realIns.call(this, n, ref); };
+    r.render(Row('ab'));   // the sibling Glyph component re-renders too
+    El.prototype.insertBefore = realIns;
+    ok(row.childNodes[row.childNodes.length - 1] === input, 'input still last child / same node after sibling-component re-render');
+    eq(moves, 0, 'focused input NOT re-inserted when a sibling component re-renders (no blur)');
+  })();
+
   console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + '  —  ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail === 0 ? 0 : 1);
 })();

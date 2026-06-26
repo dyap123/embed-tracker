@@ -424,7 +424,29 @@
     if (vnode.type === TEXT) return inst.kind === 'text';
     return inst.type === vnode.type;
   }
-  function patch(inst, vnode, parentDom, ns) {
+  function firstDomOf(inst) {
+    if (inst.kind === 'host' || inst.kind === 'text') return inst.dom;
+    var ch = inst.children;
+    for (var i = 0; i < ch.length; i++) { var d = firstDomOf(ch[i]); if (d) return d; }
+    return null;
+  }
+  // Position inst's DOM node(s) immediately before `anchor` within parentDom,
+  // moving only nodes that are genuinely out of place. A correctly-positioned,
+  // focused <input> is therefore never re-inserted — so it never loses focus.
+  function placeBefore(parentDom, inst, anchor) {
+    var nodes = domsOf(inst);
+    var ref = anchor;
+    for (var i = nodes.length - 1; i >= 0; i--) {
+      var node = nodes[i];
+      if (node.parentNode !== parentDom || node.nextSibling !== ref) parentDom.insertBefore(node, ref);
+      ref = node;
+    }
+  }
+
+  // `anchor` = the DOM node this inst's range must end immediately before, inside
+  // parentDom. Components/fragments share parentDom with siblings, so they must NOT
+  // assume their content is last (anchor=null) — that was the focus-stealing bug.
+  function patch(inst, vnode, parentDom, ns, anchor) {
     if (inst.kind === 'text') {
       var nv = vnode.props.nodeValue;
       if (inst.dom.nodeValue !== nv) inst.dom.nodeValue = nv;
@@ -433,13 +455,15 @@
     }
     if (inst.kind === 'host') {
       updateProps(inst.dom, inst.vnode.props, vnode.props, inst.ns);
-      reconcileChildren(inst.dom, inst, flatten(vnode.props.children), inst.childNs);
+      // a host element is a dedicated container: its children fill it end-to-end (anchor=null)
+      reconcileChildren(inst.dom, inst, flatten(vnode.props.children), inst.childNs, null);
       if (vnode.ref !== inst.vnode.ref) { applyRef(inst.vnode.ref, null); applyRef(vnode.ref, inst.dom); }
       inst.vnode = vnode;
       return;
     }
     if (inst.kind === 'frag') {
-      reconcileChildren(parentDom, inst, flatten(vnode.props.children), ns);
+      inst._anchor = anchor;
+      reconcileChildren(parentDom, inst, flatten(vnode.props.children), ns, anchor);
       inst.vnode = vnode;
       return;
     }
@@ -450,16 +474,22 @@
     inst.parentDom = parentDom;
     inst.ns = ns;
     if (inst.isMemo && !inst.dirty && (inst.type._eq || shallowEqual)(prevProps, vnode.props)) return;
-    renderInst(inst);
+    renderInst(inst, anchor);
   }
 
-  function renderInst(inst) {
+  function renderInst(inst, anchor) {
     inst.dirty = false;
+    if (anchor === undefined) {
+      // self-triggered re-render (setState): derive the anchor from the current DOM
+      var cur = domsOf(inst);
+      anchor = cur.length ? cur[cur.length - 1].nextSibling : (inst._anchor || null);
+    }
+    inst._anchor = anchor;
     var out = runRender(inst);
-    reconcileChildren(inst.parentDom, inst, flatten([out]), inst.ns);
+    reconcileChildren(inst.parentDom, inst, flatten([out]), inst.ns, anchor);
   }
 
-  function reconcileChildren(parentDom, parentInst, newVnodes, ns) {
+  function reconcileChildren(parentDom, parentInst, newVnodes, ns, anchor) {
     var old = parentInst.children || [];
     var depth = (parentInst.depth || 0) + 1;
     var map = null;
@@ -469,35 +499,32 @@
     }
     var claimed = old.length ? new Set() : null;
     var newInsts = new Array(newVnodes.length);
+    // pass 1 (left->right): match reuse candidates by key, claim them
     for (var n = 0; n < newVnodes.length; n++) {
       var cv = newVnodes[n];
       var cand = map ? map[keyOf(cv)] : null;
       if (cand && !claimed.has(cand) && sameType(cand, cv)) {
-        claimed.add(cand);
-        cand._ik = cv._ik;
-        patch(cand, cv, parentDom, ns);
+        claimed.add(cand); cand._ik = cv._ik;
         newInsts[n] = cand;
       } else {
-        newInsts[n] = mount(cv, parentDom, ns, depth);
-        // freshly created doms are appended at the end of parentDom; reorder pass fixes position
-        var ds = domsOf(newInsts[n]);
-        for (var k = 0; k < ds.length; k++) parentDom.appendChild(ds[k]);
+        newInsts[n] = null;
       }
     }
+    // remove stale survivors first so anchor math isn't confused by soon-to-go nodes
     if (old.length) {
       for (var r = 0; r < old.length; r++) if (!claimed.has(old[r])) unmount(old[r]);
     }
-    // reorder DOM to match newInsts (right-to-left, insert before running pointer)
-    var nextDom = null;
-    for (var x = newInsts.length - 1; x >= 0; x--) {
-      var nodes = domsOf(newInsts[x]);
-      for (var y = nodes.length - 1; y >= 0; y--) {
-        var node = nodes[y];
-        if (node.parentNode !== parentDom || node.nextSibling !== nextDom) {
-          parentDom.insertBefore(node, nextDom);
-        }
-        nextDom = node;
-      }
+    // pass 2 (right->left): patch or mount each child, then position it before the
+    // running anchor (the first DOM node of the already-placed next sibling)
+    var curAnchor = anchor || null;
+    for (var x = newVnodes.length - 1; x >= 0; x--) {
+      var v = newVnodes[x];
+      var inst = newInsts[x];
+      if (inst) patch(inst, v, parentDom, ns, curAnchor);
+      else { inst = mount(v, parentDom, ns, depth); newInsts[x] = inst; }
+      placeBefore(parentDom, inst, curAnchor);
+      var fd = firstDomOf(inst);
+      if (fd) curAnchor = fd;
     }
     parentInst.children = newInsts;
   }
@@ -563,7 +590,7 @@
     var root = { kind: 'root', children: [], parentDom: container, depth: 0, _mounted: true };
     return {
       render: function (element) {
-        reconcileChildren(container, root, flatten([element]), null);
+        reconcileChildren(container, root, flatten([element]), null, null);
         commitEffects();
       },
       unmount: function () {
