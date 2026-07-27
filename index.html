@@ -50,6 +50,10 @@
 <!-- Firebase backend (shared project · namespace embed-tracker) + Ironworker Run backend -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js"></script>
+<script>window.OY_APP_NAME='EmbedYap';</script>
+<script src="vendor/openyap-core/openyap-core.js"></script>
 <!-- perf: the export libs (SheetJS ~1MB + jsPDF/autotable ~0.4MB) are NOT loaded here.
      They lazy-load on first CSV/XLSX/PDF export via app/exports.js, so a normal page
      view (which never exports) doesn't pay ~1.4MB on the critical path. -->
@@ -57,18 +61,22 @@
 <script>
 (function(){
   const NS='embed-tracker';
-  try{ if(!firebase.apps.length) firebase.initializeApp({databaseURL:'https://gen-lang-client-0119642855-default-rtdb.firebaseio.com'}); }
-  catch(e){ console.error('Firebase init failed', e); }
-  const db=firebase.database();
+  oy.init();                                   // openyap-core: canonical (openyap-prod) config + App Check + auth
+  const db=oy.db;
+  // Secured rules require sign-in + role, so queue reads until oy is ready; oy renders
+  // the sign-in / access-pending gate over the app in the meantime. Writes are user-driven (post-auth).
+  let _ready=false; const _q=[];
+  const whenReady=fn=>{ _ready?fn():_q.push(fn); };
+  oy.ensureAuth(); oy.onReady(()=>{ _ready=true; _q.splice(0).forEach(fn=>fn()); });
   window.fb={
-    listen:(p,cb)=>db.ref(NS+'/'+p).on('value',s=>cb(s.val())),
+    listen:(p,cb)=>whenReady(()=>db.ref(NS+'/'+p).on('value',s=>cb(s.val()))),
     set:(p,d)=>db.ref(NS+'/'+p).set(d),
     update:(p,d)=>db.ref(NS+'/'+p).update(d),
     remove:(p)=>db.ref(NS+'/'+p).remove(),
-    get:(p)=>db.ref(NS+'/'+p).once('value').then(s=>s.val()),
+    get:(p)=>new Promise(res=>whenReady(()=>db.ref(NS+'/'+p).once('value').then(s=>res(s.val())).catch(()=>res(null)))),
     inc:(p,by)=>db.ref(NS+'/'+p).transaction(v=>(v||0)+by),
     max:(p,v)=>db.ref(NS+'/'+p).transaction(c=>Math.max(c||0,v)),
-    rootGet:(p)=>db.ref(p).once('value').then(s=>s.val()),
+    rootGet:(p)=>new Promise(res=>whenReady(()=>db.ref(p).once('value').then(s=>res(s.val())).catch(()=>res(null)))),
     rootSet:(p,d)=>db.ref(p).set(d),
   };
 })();
