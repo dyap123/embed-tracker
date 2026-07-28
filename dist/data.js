@@ -170,6 +170,28 @@ function deliveryState(e) {
   if (e.delivery === 'transit') return 'transit';
   return 'none';
 }
+// stub-column delivery, tracked on its own field. Deliberately NOT implied by `installed`:
+// the stub column is set on the anchor bolts AFTER the pour, so a cast-in anchor says
+// nothing about whether its stub column has landed on site. null when there's no stub here.
+function stubDeliveryState(e) {
+  if (!e.hasStub) return null;
+  if (e.stubDelivery === 'delivered') return 'delivered';
+  if (e.stubDelivery === 'transit') return 'transit';
+  return 'none';
+}
+// what the map paints for a pin: the WORST of the anchor bolt and (if there is one) its stub
+// column — a delivered bolt whose stub column hasn't shown up still reads red, because the
+// location isn't ready. Same three keys as deliveryState, so DELIVERY[...] works unchanged.
+const DELIV_RANK = {
+  delivered: 2,
+  transit: 1,
+  none: 0
+};
+function siteDeliveryState(e) {
+  const a = deliveryState(e),
+    s = stubDeliveryState(e);
+  return s && DELIV_RANK[s] < DELIV_RANK[a] ? s : a;
+}
 // date an embed was received on site — its explicit delivered date, or (for already-installed pins) the install date
 function receivedAt(e) {
   return e.deliveredAt || (e.installed ? e.installedAt : null);
@@ -223,6 +245,7 @@ function pinToEmbed(key, p) {
     area = p.area || areaFor(ci, ri);
   const at = p.installedAt ? typeof p.installedAt === 'number' ? new Date(p.installedAt).toISOString().slice(0, 10) : p.installedAt : null;
   const dat = p.deliveredAt ? typeof p.deliveredAt === 'number' ? new Date(p.deliveredAt).toISOString().slice(0, 10) : p.deliveredAt : null;
+  const sdat = p.stubDeliveredAt ? typeof p.stubDeliveredAt === 'number' ? new Date(p.stubDeliveredAt).toISOString().slice(0, 10) : p.stubDeliveredAt : null;
   // manually-placed pins (exact:true) land exactly where dropped; bulk-extracted pins snap to the grid
   const clamp01 = v => +Math.max(0, Math.min(1, v || 0)).toFixed(4);
   const nx = p.exact ? clamp01(p.x) : +colX(ci).toFixed(4);
@@ -251,7 +274,12 @@ function pinToEmbed(key, p) {
     delivery: p.delivery || 'none',
     // delivery-to-site status (see deliveryState)
     deliveredAt: dat,
-    deliveredBy: p.deliveredBy || null // when/who received it on site (set when marked delivered)
+    deliveredBy: p.deliveredBy || null,
+    // when/who received it on site (set when marked delivered)
+    stubDelivery: p.stubDelivery || 'none',
+    // stub-column delivery, tracked apart from the bolt
+    stubDeliveredAt: sdat,
+    stubDeliveredBy: p.stubDeliveredBy || null
   };
 }
 
@@ -438,6 +466,8 @@ Object.assign(window, {
   PLAN,
   pinState,
   deliveryState,
+  stubDeliveryState,
+  siteDeliveryState,
   receivedAt,
   kpis,
   installSeries,

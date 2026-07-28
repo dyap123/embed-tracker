@@ -74,13 +74,17 @@
   // ---- shared derivations ----
   function deliveryOf(e){ const ds = window.deliveryState ? window.deliveryState(e) : (e.installed?'delivered':(e.delivery||'none'));
     return (window.DELIVERY && window.DELIVERY[ds]) ? window.DELIVERY[ds].label : ds; }
+  function stubDeliveryOf(e){ if(!e.hasStub) return '';
+    const ss = window.stubDeliveryState ? window.stubDeliveryState(e) : (e.stubDelivery||'none');
+    return (window.DELIVERY && window.DELIVERY[ss]) ? window.DELIVERY[ss].label : ss; }
   function embedRows(embeds){
     return embeds.slice().sort((a,b)=>String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true}))
       .map(e=>({
         Mark:e.mark||'', Type:e.typeLabel||(e.hasKnife?'Knife plate':'Anchor rod'),
-        'Knife Plate':e.hasKnife?'Yes':'No', 'Stub Column':e.hasStub?'Yes':'No', Grid:e.grid||'',
+        'Knife Plate':e.hasKnife?'Yes':'No', 'Stub Column':e.hasStub?'Yes':'No', 'Stub Type':e.stubType||'', Grid:e.grid||'',
         Sequence:e.sequence||'', Phase:e.phase||'', Area:e.area||'',
         Delivery:deliveryOf(e), Received:(window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', 'Received By':e.deliveredBy||'',
+        'SC Delivery':stubDeliveryOf(e), 'SC Received':e.hasStub?(e.stubDeliveredAt||''):'',
         Installed:e.installed?'Yes':'No', 'Installed On':e.installedAt||'', 'Installed By':e.installedBy||'',
         RFI:e.rfi?e.rfi.number:'', 'RFI Status':e.rfi?e.rfi.status:'',
       }));

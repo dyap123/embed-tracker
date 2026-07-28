@@ -169,6 +169,17 @@ function App() {
         p.deliveredBy = null;
       }
     } // on the way / not delivered clears the received stamp
+    else if ('stubDelivery' in p) {
+      kind = 'delivery';
+      const u = userRef.current; // stub column tracked to site on its own
+      if (p.stubDelivery === 'delivered') {
+        if (!p.stubDeliveredAt) p.stubDeliveredAt = today();
+        p.stubDeliveredBy = u ? u.name : null;
+      } else {
+        p.stubDeliveredAt = null;
+        p.stubDeliveredBy = null;
+      }
+    }
     window.fb.update('pins/' + id, p);
     track(kind);
   }
@@ -188,6 +199,21 @@ function App() {
       delivery: status,
       deliveredAt: null,
       deliveredBy: null
+    };
+    ids.forEach(id => window.fb.update('pins/' + id, patch));
+    track('delivery');
+  }
+  // same, for the stub columns sitting on a group of pins (a stub-column load lands as one drop)
+  function bulkSetStubDelivery(ids, status, date) {
+    const u = userRef.current;
+    const patch = status === 'delivered' ? {
+      stubDelivery: 'delivered',
+      stubDeliveredAt: date || today(),
+      stubDeliveredBy: u ? u.name : null
+    } : {
+      stubDelivery: status,
+      stubDeliveredAt: null,
+      stubDeliveredBy: null
     };
     ids.forEach(id => window.fb.update('pins/' + id, patch));
     track('delivery');
@@ -355,6 +381,7 @@ function App() {
     onMovePins: movePins,
     onBulkInstall: bulkInstall,
     onBulkDelivery: bulkSetDelivery,
+    onBulkStubDelivery: bulkSetStubDelivery,
     grid: effGrid,
     savedGrid: grid,
     gridDraft,
