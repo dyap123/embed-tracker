@@ -43,7 +43,7 @@ function setGridLine(cfg, axis, i, nf){
   return { ...cfg, [wkey]:w };
 }
 
-function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, onBulkDelivery, grid, savedGrid, gridDraft, onGridDraft, onSaveGrid, pourMode }){
+function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], onAddZone, onUpdateZone, onRemoveZone, onRestoreZone, onAddPin, onRemovePin, onRestorePin, onMovePins, onBulkInstall, onBulkDelivery, onBulkStubDelivery, grid, savedGrid, gridDraft, onGridDraft, onSaveGrid, pourMode }){
   const vpRef = React.useRef(null);
   const rootRef = React.useRef(null);
   const canvasRef = React.useRef(null);   // pin layer (replaces ~340 DOM pin nodes)
@@ -168,7 +168,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
   function drawPin(ctx,e,x,y,on,picked){
     let col;
-    if (colorMode==='delivery'){ col = DELIVERY[deliveryState(e)].color; }   // delivery layer: green/yellow/red by on-site status
+    if (colorMode==='delivery'){ col = DELIVERY[siteDeliveryState(e)].color; }   // delivery layer: green/yellow/red by on-site status (bolt AND its stub column)
     else { const st=pinState(e); col=(e.hasStub && st!=='installed') ? '#FF9650' : STATE[st].color; }
     const r=on?8:6;
     ctx.beginPath(); ctx.arc(x,y, r+(picked?3:(on?3:1.5)), 0, 6.2832);   // glow / selection ring
@@ -178,7 +178,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const mo=r+1.5;
     if(e.hasKnife){ ctx.save(); ctx.translate(x-mo,y-mo); ctx.rotate(0.7853982); ctx.fillStyle=T.color.blue;   // knife plate ◆ top-left
       ctx.fillRect(-3,-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(-3,-3,6,6); ctx.restore(); }
-    if(e.hasStub){ ctx.fillStyle='#FF9650'; ctx.fillRect(x-mo-3,y+mo-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(x-mo-3,y+mo-3,6,6); }   // stub ■ bottom-left
+    // stub ■ bottom-left — orange normally; on the delivery layer it carries the stub column's own on-site status
+    if(e.hasStub){ ctx.fillStyle = colorMode==='delivery' ? DELIVERY[stubDeliveryState(e)].color : '#FF9650';
+      ctx.fillRect(x-mo-3,y+mo-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(x-mo-3,y+mo-3,6,6); }
     if(e.rfi){ const rc=e.rfi.status==='Open'?T.color.red:e.rfi.status==='Answered'?T.color.yellow:T.color.steel300;   // RFI ● top-right
       ctx.beginPath(); ctx.arc(x+mo,y-mo,3.5,0,6.2832); ctx.fillStyle=rc; ctx.fill(); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.stroke(); }
     if(labelsOn||on){ const txt=String((labelsOn?e.mark:e.grid)||''); if(txt){
@@ -372,9 +374,11 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql) || (e.hasStub && String(e.stubType||'').toLowerCase().includes(ql))) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e)===k).length; return m; },{});
-  const deliveryCounts = DELIVERY_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>deliveryState(e)===k).length; return m; },{});
+  const deliveryCounts = DELIVERY_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>siteDeliveryState(e)===k).length; return m; },{});   // matches the painted pin colors
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
   const stubCount = embeds.filter(e=>e.hasStub).length;
+  const stubWaiting = embeds.filter(e=>e.hasStub && stubDeliveryState(e)!=='delivered').length;   // stub columns still off site
+  const selStubs = selPins.filter(id=>{ const e=embeds.find(x=>x.id===id); return e && e.hasStub; });   // stub-column pins inside a multi-selection
   const labelsOn = view.s > 2.2;
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z=>z.id===selZone) || null;
@@ -609,6 +613,21 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
                 <span style={{ width:8, height:8, borderRadius:'50%', background:`rgb(${rgb})`, boxShadow:`0 0 6px -1px rgb(${rgb})` }} />{label}
               </button>
             ))}
+            {/* stub columns in the selection get their own delivery row — a load of stub
+                columns lands separately from the anchor bolts */}
+            {selStubs.length>0 && onBulkStubDelivery && (
+              <>
+                <div style={{ width:1, height:20, background:T.color.line }} />
+                <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.04em', color:'#FF9650', whiteSpace:'nowrap' }}>SC ×{selStubs.length}</span>
+                {[['delivered','Delivered','47,214,166'],['transit','On the way','245,194,75'],['none','Not delivered','240,85,107']].map(([st,label,rgb])=>(
+                  <button key={'sc-'+st} onClick={()=>onBulkStubDelivery(selStubs, st)} title={'Mark '+selStubs.length+' stub column(s) as '+label.toLowerCase()}
+                    style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 11px', borderRadius:T.radius.pill,
+                      background:`rgba(${rgb},.10)`, border:`1px dashed rgba(${rgb},.5)`, color:`rgb(${rgb})`, fontFamily:T.font.display, fontWeight:700, fontSize:11.5, letterSpacing:'.03em', whiteSpace:'nowrap' }}>
+                    <span style={{ width:8, height:8, background:`rgb(${rgb})`, boxShadow:`0 0 6px -1px rgb(${rgb})` }} />{label}
+                  </button>
+                ))}
+              </>
+            )}
             <div style={{ width:1, height:20, background:T.color.line }} />
             <Btn size="sm" kind="ghost" icon="layers" onClick={()=>copyEmbeds()}>Copy</Btn>
             {manager && <Btn size="sm" kind="danger" icon="trash" onClick={()=>requestDeletePins(selPins)}>Delete</Btn>}
@@ -628,7 +647,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </div>
         )}
 
-        {showLegend && <Legend counts={counts} deliveryCounts={deliveryCounts} colorMode={colorMode} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} onClose={()=>setShowLegend(false)} />}
+        {showLegend && <Legend counts={counts} deliveryCounts={deliveryCounts} colorMode={colorMode} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} stubWaiting={stubWaiting} onClose={()=>setShowLegend(false)} />}
         {!showLegend && <Btn size="sm" kind="solid" icon="layers" onClick={()=>setShowLegend(true)} style={{ position:'absolute', left:14, bottom:14 }}>Legend</Btn>}
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
@@ -769,7 +788,7 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColo
 const zbtn = { width:30, height:28, display:'grid', placeItems:'center', borderRadius:6, color:T.color.steel200 };
 
 /* ---- legend ---- */
-function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCount, stubCount, onClose }){
+function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCount, stubCount, stubWaiting=0, onClose }){
   const delivery = colorMode==='delivery';
   return (
     <div data-ui style={{ position:'absolute', left:14, bottom:14, background:steelPlate('#161D29','#0F141C'),
@@ -804,6 +823,14 @@ function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCo
           <span style={{ color:T.color.offwhite, flex:1 }}>Stub column</span>
           <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{stubCount}</span>
         </div>
+        {/* on the delivery layer a pin reads red while its stub column is off site — call that out */}
+        {delivery && stubCount>0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
+            <span style={{ width:9, height:9, background:T.color.red, display:'inline-block', marginLeft:1 }} />
+            <span style={{ color:T.color.offwhite, flex:1 }}>SC not on site</span>
+            <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{stubWaiting}</span>
+          </div>
+        )}
       </div>
       <div style={{ marginTop:9, paddingTop:9, borderTop:'1px solid '+T.color.line, display:'flex', justifyContent:'space-between', fontFamily:T.font.mono, fontSize:11.5, color:T.color.steel400 }}>
         <span>TOTAL PINNED</span><span style={{ color:'#fff' }}>{total}</span>

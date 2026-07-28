@@ -135,6 +135,7 @@ function MapScreen({
   onMovePins,
   onBulkInstall,
   onBulkDelivery,
+  onBulkStubDelivery,
   grid,
   savedGrid,
   gridDraft,
@@ -438,8 +439,8 @@ function MapScreen({
   function drawPin(ctx, e, x, y, on, picked) {
     let col;
     if (colorMode === 'delivery') {
-      col = DELIVERY[deliveryState(e)].color;
-    } // delivery layer: green/yellow/red by on-site status
+      col = DELIVERY[siteDeliveryState(e)].color;
+    } // delivery layer: green/yellow/red by on-site status (bolt AND its stub column)
     else {
       const st = pinState(e);
       col = e.hasStub && st !== 'installed' ? '#FF9650' : STATE[st].color;
@@ -468,13 +469,14 @@ function MapScreen({
       ctx.strokeRect(-3, -3, 6, 6);
       ctx.restore();
     }
+    // stub ■ bottom-left — orange normally; on the delivery layer it carries the stub column's own on-site status
     if (e.hasStub) {
-      ctx.fillStyle = '#FF9650';
+      ctx.fillStyle = colorMode === 'delivery' ? DELIVERY[stubDeliveryState(e)].color : '#FF9650';
       ctx.fillRect(x - mo - 3, y + mo - 3, 6, 6);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = '#0C111A';
       ctx.strokeRect(x - mo - 3, y + mo - 3, 6, 6);
-    } // stub ■ bottom-left
+    }
     if (e.rfi) {
       const rc = e.rfi.status === 'Open' ? T.color.red : e.rfi.status === 'Answered' ? T.color.yellow : T.color.steel300; // RFI ● top-right
       ctx.beginPath();
@@ -1173,11 +1175,16 @@ function MapScreen({
     return m;
   }, {});
   const deliveryCounts = DELIVERY_ORDER.reduce((m, k) => {
-    m[k] = embeds.filter(e => deliveryState(e) === k).length;
+    m[k] = embeds.filter(e => siteDeliveryState(e) === k).length;
     return m;
-  }, {});
+  }, {}); // matches the painted pin colors
   const knifeCount = embeds.filter(e => e.hasKnife).length;
   const stubCount = embeds.filter(e => e.hasStub).length;
+  const stubWaiting = embeds.filter(e => e.hasStub && stubDeliveryState(e) !== 'delivered').length; // stub columns still off site
+  const selStubs = selPins.filter(id => {
+    const e = embeds.find(x => x.id === id);
+    return e && e.hasStub;
+  }); // stub-column pins inside a multi-selection
   const labelsOn = view.s > 2.2;
   const renderZones = liveZones || zones;
   const selectedZone = renderZones.find(z => z.id === selZone) || null;
@@ -2041,7 +2048,49 @@ function MapScreen({
       background: `rgb(${rgb})`,
       boxShadow: `0 0 6px -1px rgb(${rgb})`
     }
-  }), label)), /*#__PURE__*/React.createElement("div", {
+  }), label)), selStubs.length > 0 && onBulkStubDelivery && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.color.line
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 11.5,
+      letterSpacing: '.04em',
+      color: '#FF9650',
+      whiteSpace: 'nowrap'
+    }
+  }, "SC \xD7", selStubs.length), [['delivered', 'Delivered', '47,214,166'], ['transit', 'On the way', '245,194,75'], ['none', 'Not delivered', '240,85,107']].map(([st, label, rgb]) => /*#__PURE__*/React.createElement("button", {
+    key: 'sc-' + st,
+    onClick: () => onBulkStubDelivery(selStubs, st),
+    title: 'Mark ' + selStubs.length + ' stub column(s) as ' + label.toLowerCase(),
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      height: 28,
+      padding: '0 11px',
+      borderRadius: T.radius.pill,
+      background: `rgba(${rgb},.10)`,
+      border: `1px dashed rgba(${rgb},.5)`,
+      color: `rgb(${rgb})`,
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 11.5,
+      letterSpacing: '.03em',
+      whiteSpace: 'nowrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      background: `rgb(${rgb})`,
+      boxShadow: `0 0 6px -1px rgb(${rgb})`
+    }
+  }), label))), /*#__PURE__*/React.createElement("div", {
     style: {
       width: 1,
       height: 20,
@@ -2113,6 +2162,7 @@ function MapScreen({
     total: embeds.length,
     knifeCount: knifeCount,
     stubCount: stubCount,
+    stubWaiting: stubWaiting,
     onClose: () => setShowLegend(false)
   }), !showLegend && /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
@@ -2738,6 +2788,7 @@ function Legend({
   total,
   knifeCount,
   stubCount,
+  stubWaiting = 0,
   onClose
 }) {
   const delivery = colorMode === 'delivery';
@@ -2872,7 +2923,33 @@ function Legend({
       fontSize: 12,
       color: T.color.steel300
     }
-  }, stubCount))), /*#__PURE__*/React.createElement("div", {
+  }, stubCount)), delivery && stubCount > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 9,
+      height: 9,
+      background: T.color.red,
+      display: 'inline-block',
+      marginLeft: 1
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.color.offwhite,
+      flex: 1
+    }
+  }, "SC not on site"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.font.mono,
+      fontSize: 12,
+      color: T.color.steel300
+    }
+  }, stubWaiting))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 9,
       paddingTop: 9,

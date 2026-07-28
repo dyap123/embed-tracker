@@ -12,6 +12,9 @@ function PinDetail({
   const [mark, setMark] = React.useState(embed.mark || '');
   const st = pinState(embed);
   const ds = deliveryState(embed);
+  const sds = stubDeliveryState(embed); // null when there's no stub column here
+  const cds = siteDeliveryState(embed); // bolt + stub together — what the map paints
+
   function toggleInstall() {
     const now = !embed.installed;
     updateEmbed(embed.id, {
@@ -172,7 +175,10 @@ function PinDetail({
     color: T.color.blue
   }, "Knife plate"), embed.hasStub && /*#__PURE__*/React.createElement(Badge, {
     color: "#FF9650"
-  }, embed.stubType ? 'Stub · ' + embed.stubType : 'Stub column'), /*#__PURE__*/React.createElement(Badge, {
+  }, embed.stubType ? 'Stub · ' + embed.stubType : 'Stub column'), embed.hasStub && /*#__PURE__*/React.createElement(Badge, {
+    color: DELIVERY[sds].color,
+    fill: sds === 'delivered'
+  }, 'SC · ' + DELIVERY[sds].label), /*#__PURE__*/React.createElement(Badge, {
     color: T.color.steel300
   }, embed.pour)), celebrate && /*#__PURE__*/React.createElement(Celebrate, null)), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -348,8 +354,8 @@ function PinDetail({
     }))
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
-      background: `linear-gradient(180deg,rgba(${ds === 'delivered' ? '47,214,166' : ds === 'transit' ? '245,194,75' : '240,85,107'},.14),rgba(0,0,0,.04))`,
-      border: '1px solid ' + DELIVERY[ds].color + '55',
+      background: `linear-gradient(180deg,rgba(${cds === 'delivered' ? '47,214,166' : cds === 'transit' ? '245,194,75' : '240,85,107'},.14),rgba(0,0,0,.04))`,
+      border: '1px solid ' + DELIVERY[cds].color + '55',
       borderRadius: T.radius.lg,
       padding: '14px 16px'
     }
@@ -369,7 +375,7 @@ function PinDetail({
       textTransform: 'uppercase',
       letterSpacing: '.03em'
     }
-  }, "Delivery"), /*#__PURE__*/React.createElement("div", {
+  }, "Delivery", embed.hasStub ? ' · Anchor bolt' : ''), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: T.color.steel300,
@@ -399,7 +405,60 @@ function PinDetail({
       display: 'flex',
       flexWrap: 'wrap'
     }
-  })), /*#__PURE__*/React.createElement("div", {
+  }), embed.hasStub && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 13,
+      paddingTop: 13,
+      borderTop: '1px solid rgba(255,150,80,.3)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      marginBottom: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.font.display,
+      fontWeight: 700,
+      fontSize: 15,
+      textTransform: 'uppercase',
+      letterSpacing: '.03em',
+      color: '#FF9650'
+    }
+  }, "Stub column", embed.stubType ? ' · ' + embed.stubType : ''), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.color.steel300,
+      marginTop: 2
+    }
+  }, sds === 'delivered' ? `On site · ${embed.stubDeliveredAt || '—'}${embed.stubDeliveredBy ? ' · by ' + embed.stubDeliveredBy : ''}` : sds === 'transit' ? 'Shipped — on the way to site' : 'Not on site — pin reads red until it lands')), /*#__PURE__*/React.createElement(Dot, {
+    color: DELIVERY[sds].color,
+    size: 12,
+    pulse: sds === 'transit'
+  })), /*#__PURE__*/React.createElement(Segmented, {
+    size: "sm",
+    value: embed.stubDelivery || 'none',
+    onChange: v => updateEmbed(embed.id, {
+      stubDelivery: v
+    }),
+    options: [{
+      value: 'none',
+      label: 'Not yet'
+    }, {
+      value: 'transit',
+      label: 'On the way'
+    }, {
+      value: 'delivered',
+      label: 'Delivered'
+    }],
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap'
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',

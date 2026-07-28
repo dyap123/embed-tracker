@@ -87,6 +87,9 @@ function App(){
     else if ('delivery' in p){ kind = 'delivery'; const u=userRef.current;
       if (p.delivery==='delivered'){ if(!p.deliveredAt) p.deliveredAt = today(); p.deliveredBy = u? u.name : null; }
       else { p.deliveredAt = null; p.deliveredBy = null; } }   // on the way / not delivered clears the received stamp
+    else if ('stubDelivery' in p){ kind = 'delivery'; const u=userRef.current;   // stub column tracked to site on its own
+      if (p.stubDelivery==='delivered'){ if(!p.stubDeliveredAt) p.stubDeliveredAt = today(); p.stubDeliveredBy = u? u.name : null; }
+      else { p.stubDeliveredAt = null; p.stubDeliveredBy = null; } }
     window.fb.update('pins/'+id, p);
     track(kind);
   }
@@ -96,6 +99,11 @@ function App(){
   function bulkSetDelivery(ids, status, date){ const u=userRef.current;
     const patch = status==='delivered' ? { delivery:'delivered', deliveredAt: date||today(), deliveredBy: u?u.name:null }
                                        : { delivery:status, deliveredAt:null, deliveredBy:null };
+    ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('delivery'); }
+  // same, for the stub columns sitting on a group of pins (a stub-column load lands as one drop)
+  function bulkSetStubDelivery(ids, status, date){ const u=userRef.current;
+    const patch = status==='delivered' ? { stubDelivery:'delivered', stubDeliveredAt: date||today(), stubDeliveredBy: u?u.name:null }
+                                       : { stubDelivery:status, stubDeliveredAt:null, stubDeliveredBy:null };
     ids.forEach(id=> window.fb.update('pins/'+id, patch)); track('delivery'); }
   // mark a group installed / to-install (credits points for the net change, one toast)
   function bulkInstall(ids, val){ const u=userRef.current; let d=0;
@@ -138,7 +146,7 @@ function App(){
 
   const mapProps = { embeds, updateEmbed, bulkUpdate, user, isPhone, zones,
     onAddZone:addZone, onUpdateZone:updateZone, onRemoveZone:removeZone, onRestoreZone:restoreZone,
-    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall, onBulkDelivery:bulkSetDelivery,
+    onAddPin:addPin, onRemovePin:removePin, onRestorePin:restorePin, onMovePins:movePins, onBulkInstall:bulkInstall, onBulkDelivery:bulkSetDelivery, onBulkStubDelivery:bulkSetStubDelivery,
     grid:effGrid, savedGrid:grid, gridDraft, onGridDraft:setGridDraft, onSaveGrid:saveGrid };
   const screenEl = {
     map: <MapScreen {...mapProps} />,
