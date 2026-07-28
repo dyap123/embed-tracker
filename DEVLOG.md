@@ -1,5 +1,69 @@
 # EmbedYap — DEVLOG
 
+## 2026-07-28 — Stub-column delivery tracked apart from the anchor bolt
+
+**The bug:** delivery was a single per-pin status, so a pin whose anchor bolt was
+marked delivered read **green** on the Delivery layer even when the stub column at
+that location hadn't shown up. Two separate pieces, two separate trucks — one status
+couldn't describe both.
+
+### Data model
+Pins gain three fields (additive; old pins read as `'none'`):
+```
+stubDelivery     'none' | 'transit' | 'delivered'
+stubDeliveredAt  'YYYY-MM-DD'   (stamped on delivered, cleared otherwise)
+stubDeliveredBy  crew name
+```
+Deliberately **not** implied by `installed` — unlike the bolt, where installed steel
+is on site by definition. The stub column sets on the bolts *after* the pour, so
+casting the anchor in says nothing about the column having landed.
+
+### The rule (`app/data.jsx`)
+- `stubDeliveryState(e)` — the stub's own status; `null` when there's no stub here.
+- `siteDeliveryState(e)` — the **worst** of the bolt and (if present) its stub, ranked
+  `delivered > transit > none`. Same three keys as `deliveryState`, so `DELIVERY[...]`
+  lookups work unchanged. A delivered bolt whose stub is off site reads red.
+
+`deliveryState()` is untouched — it still means the anchor bolt alone.
+
+### Where it shows
+- **Map** (`MapScreen.jsx`) — the Delivery layer paints `siteDeliveryState`; the stub ■
+  marker at the pin's bottom-left carries its own delivery color on that layer; legend
+  counts use the combined state (so they match the pins) plus an "SC not on site" row.
+- **Pin detail** (`MapDetail.jsx`) — the Delivery card is now two rows, `DELIVERY ·
+  ANCHOR BOLT` and `STUB COLUMN · <type>`, each 3-way. The stub row stays editable
+  after install (see above). Card tint + header badge follow the combined state.
+- **Multi-select** — when a selection contains stub pins, an orange `SC ×n` row
+  (dashed buttons) sets stub delivery on just those, via `bulkSetStubDelivery` in
+  `App.jsx`. A stub-column load lands as one drop, so bulk is the normal path.
+- **Exports** (`exports.jsx`) — added `Stub Type`, `SC Delivery`, `SC Received`.
+
+### Deliberately NOT changed
+Inventory and Dashboard "delivered" counts still track **anchor bolts only**. Dropping
+a bolt from the delivered count because its stub column is late would distort material
+tracking. Only the map and its legend use the combined rule.
+
+### Rollout notes
+- Every stub pin reads **red** on the Delivery layer until its stub is marked — there's
+  no historical data for it. Backfill with the `SC ×n` bulk row on a marquee selection.
+- `dist/*.js` is browser-cached between visits (the `?v=Date.now()` bust was dropped for
+  perf), so crew may need **Cmd+Shift+R** once. `index.html` itself is no-store.
+
+### Testing without the auth gate
+`main` is the deployed, open-Firebase config; `openyap-core-integration` adds the
+sign-in gate. To exercise `dist/` against the live DB from either branch:
+```bash
+git show main:index.html > _test.html    # untracked; delete when done
+python3 -m http.server 8777              # open http://localhost:8777/_test.html
+```
+⚠️ That points at the **live** RTDB — anything you toggle writes real data. For pure UI
+work, render a component against a fake pin with a stubbed `updateEmbed` instead.
+
+### Shipped
+`ce5ef84` on `main` (GitHub Pages, live), merged into `openyap-core-integration` as
+`ba3561a`. Revert with `git revert ce5ef84` — the new pin fields are additive and
+harmless if left in the DB.
+
 ## 2026-06-26 — React → vanilla "nano" runtime (no framework, no build)
 
 **What happened:** removed React entirely. The app now runs on `vendor/nano.js`,
