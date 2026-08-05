@@ -941,6 +941,10 @@
       const short = tot - del;
       return `<span class="${short ? 'short' : 'done'}">${del}<span class="of">/${tot}</span></span>` + (short ? `<span class="pill none">${short} short</span>` : '') + (tr ? `<span class="pill tr">${tr} on way</span>` : '');
     };
+    /* "Anchor rod" is the model's word; the field says ANCHOR BOLT, and this sheet is for the
+       field. Only that one type is renamed — a knife plate is not an anchor bolt and calling
+       it one on a delivery sheet would get the wrong thing ordered. */
+    const desc = d => !d ? 'Anchor bolt' : String(d).replace(/anchor\s*rod/ig, 'Anchor bolt');
     const STATUS = {
       'on-site': {
         cls: 's-ok',
@@ -964,8 +968,7 @@
       return `<tr class="${st.cls}">
       <td class="ck"><span class="box"></span></td>
       <td class="mk">${esc(r.mark)}</td>
-      <td>${esc(r.desc || 'Anchor rod')}</td>
-      <td class="sq">${esc(r.seqs)}</td>
+      <td>${esc(desc(r.desc))}</td>
       <td class="ar">${esc(r.areas)}</td>
       <td class="q">${qty(r.bDel, r.bTot, r.bTr)}</td>
       <td class="q">${qty(r.sDel, r.sTot, r.sTr)}</td>
@@ -990,7 +993,7 @@
       td { padding:4px 5px; border-bottom:1px solid #d9dee7; vertical-align:middle; }
       tr { break-inside:avoid; }
       .ck { width:24px; } .mk { width:70px; font-weight:700; font-size:12.5pt; font-family:ui-monospace,Menlo,monospace; }
-      .sq { width:74px; font-size:9pt; color:#41495a; } .ar { width:52px; font-size:9pt; color:#41495a; }
+      .ar { width:56px; font-size:9pt; color:#41495a; }
       .q { width:118px; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; }
       .q .of { color:#8a93a4; font-size:9pt; }
       .q .done { color:#2f7d52; font-weight:700; font-size:12pt; }
@@ -1035,7 +1038,7 @@
       </header>
       ${rows.length ? `<table><thead><tr>
           <th class="ck">&#10003;</th><th class="mk">MARK</th><th>DESCRIPTION</th>
-          <th class="sq">SEQ</th><th class="ar">AREA</th>
+          <th class="ar">AREA</th>
           <th class="q">ANCHOR BOLTS</th><th class="q">STUB COLUMNS</th>
           <th class="stat">STATUS</th><th class="no">NOTE</th>
         </tr></thead><tbody>${body}</tbody></table>` : '<div class="none-left">Nothing in this scope. Check the sequence filter and the delivery switches.</div>'}
