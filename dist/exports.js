@@ -912,17 +912,26 @@
       '>': '&gt;',
       '"': '&quot;'
     })[c]);
+    const sum = (g, f) => g.rows.reduce((x, r) => x + (r[f] || 0), 0);
     const totals = groups.reduce((a, g) => ({
       marks: a.marks + g.rows.length,
-      qty: a.qty + g.rows.reduce((x, r) => x + r.qty, 0),
-      none: a.none + g.rows.reduce((x, r) => x + r.none, 0),
-      transit: a.transit + g.rows.reduce((x, r) => x + r.transit, 0)
+      qty: a.qty + sum(g, 'qty'),
+      bolts: a.bolts + sum(g, 'bolts'),
+      stubs: a.stubs + sum(g, 'stubs'),
+      none: a.none + sum(g, 'bNone') + sum(g, 'sNone'),
+      transit: a.transit + sum(g, 'bTransit') + sum(g, 'sTransit')
     }), {
       marks: 0,
       qty: 0,
+      bolts: 0,
+      stubs: 0,
       none: 0,
       transit: 0
     });
+    /* A cell that says both "how many" and "what state" — the two questions the yard asks in
+     * that order. Blank rather than a zero when there is nothing outstanding of that kind, so
+     * the eye lands only on what is actually missing. */
+    const cell = (none, transit) => none + transit === 0 ? '<span class="ok">—</span>' : `<b>${none + transit}</b>${none ? `<span class="pill none">${none} not del.</span>` : ''}${transit ? `<span class="pill tr">${transit} on way</span>` : ''}`;
     const section = g => {
       const due = g.needed ? esc(g.needed) : '';
       const late = g.daysLeft != null && g.daysLeft < 0;
@@ -931,24 +940,25 @@
       return `<section>
         <h2><span class="seq">${esc(g.label)}</span>
           <span class="due">${due ? `needed by ${due} ${when}` : 'no needed-by date set'}</span>
-          <span class="cnt">${g.rows.reduce((x, r) => x + r.qty, 0)} pc · ${g.rows.length} mark(s)</span></h2>
+          <span class="cnt">${sum(g, 'bolts')} bolt${sum(g, 'bolts') === 1 ? '' : 's'} · ${sum(g, 'stubs')} stub col. · ${g.rows.length} mark(s)</span></h2>
         <table>
           <thead><tr>
             <th class="ck">✓</th><th class="mk">MARK</th><th>DESCRIPTION</th>
-            <th class="n">QTY</th><th class="st">STATUS</th><th>LOCATIONS</th><th class="ar">AREA</th><th class="no">NOTE</th>
+            <th class="q">ANCHOR BOLTS</th><th class="q">STUB COLUMNS</th>
+            <th>LOCATIONS</th><th class="ar">AREA</th><th class="no">NOTE</th>
           </tr></thead>
           <tbody>${g.rows.map(r => `<tr>
             <td class="ck"><span class="box"></span></td>
             <td class="mk">${esc(r.mark)}</td>
             <td>${esc(r.desc || 'Anchor rod')}</td>
-            <td class="n big">${r.qty}</td>
-            <td class="st">${r.none ? `<span class="pill none">${r.none} not delivered</span>` : ''}${r.transit ? `<span class="pill tr">${r.transit} on the way</span>` : ''}</td>
+            <td class="q">${cell(r.bNone, r.bTransit)}</td>
+            <td class="q">${cell(r.sNone, r.sTransit)}</td>
             <td class="loc">${esc(r.locations)}</td>
             <td class="ar">${esc(r.areas)}</td>
             <td class="no">${esc(r.note)}</td></tr>`).join('')}</tbody>
         </table></section>`;
     };
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title || 'Anchor bolts to deliver')}</title><style>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title || 'To be delivered')}</title><style>
       /* the sheet itself — 11x17 portrait, thin margins so the table gets the width */
       @page { size: 11in 17in; margin: 0.4in 0.45in 0.5in; }
       * { box-sizing:border-box; }
@@ -974,7 +984,10 @@
       .ck { width:26px; } .mk { width:74px; font-weight:700; font-size:12pt; font-family:ui-monospace,Menlo,monospace; }
       .n { width:44px; text-align:right; font-family:ui-monospace,Menlo,monospace; }
       .big { font-size:13pt; font-weight:700; }
-      .st { width:150px; } .ar { width:64px; } .no { width:96px; font-size:9pt; }
+      .q { width:132px; white-space:nowrap; }
+      .q b { font-size:13pt; margin-right:5px; font-family:ui-monospace,Menlo,monospace; }
+      .ok { color:#9aa3b4; }
+      .ar { width:58px; } .no { width:92px; font-size:9pt; }
       .loc { font-family:ui-monospace,Menlo,monospace; font-size:8.5pt; color:#2c3446; word-break:break-word; }
       /* a real box to tick with a pencil — the whole point of printing it */
       .box { display:inline-block; width:13px; height:13px; border:1.6px solid #46506a; border-radius:2px; }
@@ -987,10 +1000,11 @@
       @media print { .noprint { display:none; } }
     </style></head><body>
       <header>
-        <h1>Anchor bolts — TO BE DELIVERED</h1>
+        <h1>TO BE DELIVERED — anchor bolts &amp; stub columns</h1>
         <div class="sub">${esc(meta.project || 'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope || 'All sequences')} &nbsp;·&nbsp; printed ${esc(meta.date || stamp())}</div>
         <div class="kpis">
-          <span>Still to come <b>${totals.qty}</b> pc</span>
+          <span>Anchor bolts <b>${totals.bolts}</b></span>
+          <span>Stub columns <b>${totals.stubs}</b></span>
           <span class="r">Not delivered <b class="r">${totals.none}</b></span>
           <span class="a">On the way <b class="a">${totals.transit}</b></span>
           <span>Marks <b>${totals.marks}</b></span>

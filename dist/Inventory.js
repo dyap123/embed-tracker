@@ -332,7 +332,17 @@ function Inventory({
    * scope you would want on paper.
    */
   function printDelivery() {
-    const out = embeds.filter(e => matchSeq(e) && matchEmbed(e) && dState(e) !== 'delivered');
+    const sState = window.stubDeliveryState;
+    /* Scoped on siteDeliveryState — the WORST of the bolt and its stub column — not on the
+     * bolt alone.
+     *
+     * The bolt's own state was wrong here, and wrong in the direction that matters. A stub
+     * column is set on the anchors AFTER the pour, so a cast-in bolt says nothing about
+     * whether its stub column has landed; filtering on the bolt dropped every
+     * bolt-on-site-stub-still-missing location off the sheet, which is the most common way to
+     * be short. Now an embed prints if EITHER item is still to come, and the two are counted
+     * in their own columns because they arrive on their own trucks. */
+    const out = embeds.filter(e => matchSeq(e) && matchEmbed(e) && window.siteDeliveryState(e) !== 'delivered');
     const byS = {};
     out.forEach(e => {
       const s = seqMode === 'wcg' ? e.wcgPour || '—' : e.sequence || '—';
@@ -340,18 +350,23 @@ function Inventory({
       const m = byS[s][e.mark] || (byS[s][e.mark] = {
         mark: e.mark,
         desc: e.typeLabel,
-        none: 0,
-        transit: 0,
+        bNone: 0,
+        bTransit: 0,
+        sNone: 0,
+        sTransit: 0,
         grids: [],
         areas: new Set(),
         knife: 0,
-        stub: 0
+        stubTypes: new Set()
       });
-      if (dState(e) === 'transit') m.transit++;else m.none++;
+      const b = dState(e);
+      if (b === 'transit') m.bTransit++;else if (b !== 'delivered') m.bNone++;
+      const st = sState(e); // null when this embed has no stub column
+      if (st === 'transit') m.sTransit++;else if (st === 'none') m.sNone++;
       if (e.grid) m.grids.push(e.grid);
       if (e.area) m.areas.add(e.area);
       if (e.hasKnife) m.knife++;
-      if (e.hasStub && window.stubDeliveryState(e) !== 'delivered') m.stub++;
+      if (e.hasStub && e.stubType) m.stubTypes.add(e.stubType);
     });
     const groups = Object.keys(byS).map(s => {
       const meta = seqMeta[s] || {};
@@ -361,14 +376,18 @@ function Inventory({
       const rowsOut = Object.values(byS[s]).map(m => ({
         mark: m.mark,
         desc: m.desc,
-        qty: m.none + m.transit,
-        none: m.none,
-        transit: m.transit,
+        bolts: m.bNone + m.bTransit,
+        bNone: m.bNone,
+        bTransit: m.bTransit,
+        stubs: m.sNone + m.sTransit,
+        sNone: m.sNone,
+        sTransit: m.sTransit,
+        qty: m.bNone + m.bTransit + m.sNone + m.sTransit,
         // a long grid list is noise on paper — show the first dozen and say how many more
         locations: m.grids.length > 12 ? m.grids.slice(0, 12).join(', ') + ' +' + (m.grids.length - 12) + ' more' : m.grids.join(', '),
         areas: Array.from(m.areas).sort().join(', '),
-        note: [m.knife ? m.knife + ' knife pl.' : '', m.stub ? m.stub + ' stub col.' : ''].filter(Boolean).join(' · ')
-      })).sort((a, b) => b.none - a.none || String(a.mark).localeCompare(String(b.mark), undefined, {
+        note: [m.knife ? m.knife + ' knife pl.' : '', Array.from(m.stubTypes).sort().join('/')].filter(Boolean).join(' · ')
+      })).sort((a, b) => b.bNone + b.sNone - (a.bNone + a.sNone) || String(a.mark).localeCompare(String(b.mark), undefined, {
         numeric: true
       }));
       return {
