@@ -152,17 +152,20 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
      * Sequence and area survive as columns, so it still tells you what a mark is for. */
     const num = (a,b)=> String(a).localeCompare(String(b), undefined, { numeric:true, sensitivity:'base' });
     const byMarkFlat = {};
-    embeds.filter(e=> matchSeq(e) && matchEmbed(e) && matchDeliv(e)).forEach(e=>{
+    /* The whole job, not the current sequence scope. A sheet that silently inherited the
+       on-screen sequence filter came out missing marks with nothing on the page to say so —
+       and a reference you cannot trust to be complete is not a reference. The delivery
+       toggles and the search box still apply, because both are things you just typed. */
+    embeds.filter(e=> matchEmbed(e) && matchDeliv(e)).forEach(e=>{
       const m = byMarkFlat[e.mark] || (byMarkFlat[e.mark] = { mark:e.mark, desc:e.typeLabel,
-        bTot:0, bDel:0, bTr:0, sTot:0, sDel:0, sTr:0, seqs:new Set(), areas:new Set(), knife:0, stubTypes:new Set() });
+        bTot:0, bDel:0, bTr:0, sTot:0, sDel:0, sTr:0, areas:new Set(), knife:0, stubTypes:new Set() });
       m.bTot++; const b = dState(e); if(b==='delivered') m.bDel++; else if(b==='transit') m.bTr++;
       if(e.hasStub){ m.sTot++; const st=sState(e); if(st==='delivered') m.sDel++; else if(st==='transit') m.sTr++; }
-      if(e.sequence) m.seqs.add(e.sequence); if(e.area) m.areas.add(e.area);
+      if(e.area) m.areas.add(e.area);
       if(e.hasKnife) m.knife++; if(e.hasStub && e.stubType) m.stubTypes.add(e.stubType); });
     const flat = Object.values(byMarkFlat).sort((a,b)=> num(a.mark, b.mark)).map(m=>{
       const outstanding = (m.bTot-m.bDel) + (m.sTot-m.sDel);
       return { mark:m.mark, desc:m.desc,
-        seqs: Array.from(m.seqs).sort(num).map(seqLabelOf).join(', '),
         areas: Array.from(m.areas).sort().join(', '),
         bTot:m.bTot, bDel:m.bDel, bTr:m.bTr, sTot:m.sTot, sDel:m.sDel, sTr:m.sTr,
         outstanding,
@@ -180,7 +183,7 @@ function Inventory({ embeds, isPhone, types, onEditType, onAddType, onDeleteType
 
     window.printDeliveryList(flat, {
       project: 'LA Convention Center · A101',
-      scope: (seqFilter==='all' ? 'All sequences' : (seqMode==='wcg'?'WCG ':'')+seqLabelOf(seqFilter))
+      scope: 'Whole job'
         + (delivAll ? '' : ' · showing '+DELIV_STATES.filter(x=>delivShow[x.key]).map(x=>x.label).join(' + '))
         + (q.trim()?` · search "${q.trim()}"`:''),
       date: todayISO(),

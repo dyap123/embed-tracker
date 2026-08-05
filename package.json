@@ -2,7 +2,7 @@
   "name": "embed-tracker",
   "private": true,
   "scripts": {
-    "build": "babel app --out-dir dist --extensions .jsx --out-file-extension .js --quiet"
+    "build": "babel app --out-dir dist --extensions .jsx --out-file-extension .js --quiet && node stamp.js"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.0",

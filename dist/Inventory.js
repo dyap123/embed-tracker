@@ -348,7 +348,11 @@ function Inventory({
       sensitivity: 'base'
     });
     const byMarkFlat = {};
-    embeds.filter(e => matchSeq(e) && matchEmbed(e) && matchDeliv(e)).forEach(e => {
+    /* The whole job, not the current sequence scope. A sheet that silently inherited the
+       on-screen sequence filter came out missing marks with nothing on the page to say so —
+       and a reference you cannot trust to be complete is not a reference. The delivery
+       toggles and the search box still apply, because both are things you just typed. */
+    embeds.filter(e => matchEmbed(e) && matchDeliv(e)).forEach(e => {
       const m = byMarkFlat[e.mark] || (byMarkFlat[e.mark] = {
         mark: e.mark,
         desc: e.typeLabel,
@@ -358,7 +362,6 @@ function Inventory({
         sTot: 0,
         sDel: 0,
         sTr: 0,
-        seqs: new Set(),
         areas: new Set(),
         knife: 0,
         stubTypes: new Set()
@@ -371,7 +374,6 @@ function Inventory({
         const st = sState(e);
         if (st === 'delivered') m.sDel++;else if (st === 'transit') m.sTr++;
       }
-      if (e.sequence) m.seqs.add(e.sequence);
       if (e.area) m.areas.add(e.area);
       if (e.hasKnife) m.knife++;
       if (e.hasStub && e.stubType) m.stubTypes.add(e.stubType);
@@ -381,7 +383,6 @@ function Inventory({
       return {
         mark: m.mark,
         desc: m.desc,
-        seqs: Array.from(m.seqs).sort(num).map(seqLabelOf).join(', '),
         areas: Array.from(m.areas).sort().join(', '),
         bTot: m.bTot,
         bDel: m.bDel,
@@ -402,7 +403,7 @@ function Inventory({
     });
     window.printDeliveryList(flat, {
       project: 'LA Convention Center · A101',
-      scope: (seqFilter === 'all' ? 'All sequences' : (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter)) + (delivAll ? '' : ' · showing ' + DELIV_STATES.filter(x => delivShow[x.key]).map(x => x.label).join(' + ')) + (q.trim() ? ` · search "${q.trim()}"` : ''),
+      scope: 'Whole job' + (delivAll ? '' : ' · showing ' + DELIV_STATES.filter(x => delivShow[x.key]).map(x => x.label).join(' + ')) + (q.trim() ? ` · search "${q.trim()}"` : ''),
       date: todayISO()
     });
   }
