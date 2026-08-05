@@ -347,6 +347,40 @@
        field. Only that one type is renamed — a knife plate is not an anchor bolt and calling
        it one on a delivery sheet would get the wrong thing ordered. */
     const desc = (d)=> !d ? 'Anchor bolt' : String(d).replace(/anchor\s*rod/ig, 'Anchor bolt');
+    const HEAD_FULL = `<header>
+        <div class="top">
+          <div class="grow">
+            <h1>Embed delivery — quick reference</h1>
+            <div class="sub">${esc(meta.project||'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope||'Whole job')} &nbsp;·&nbsp; printed ${esc(meta.date||stamp())}</div>
+          </div>
+          <div class="kpis">
+            <span class="g">Bolts on site <b class="g">${totals.bDel}</b> / ${totals.bTot}</span>
+            <span class="g">Stub col. <b class="g">${totals.sDel}</b> / ${totals.sTot}</span>
+            <span class="r">Still to come <b class="r">${totals.out}</b></span>
+            ${totals.stubShort?`<span style="color:#8A3E00">Stub col. short <b style="color:#8A3E00">${totals.stubShort}</b></span>`:''}
+            <span>Marks <b>${totals.marks}</b></span>
+          </div>
+        </div>
+        <div class="legend">
+          <span><span class="badge s-ok">ON SITE</span> nothing outstanding</span>
+          <span><span class="badge s-stub">BOLTS IN · STUB COL. SHORT</span> looks done, is not</span>
+          <span><span class="badge s-part">PART DELIVERED</span></span>
+          <span><span class="badge s-none">NOT DELIVERED</span></span>
+          <span style="color:#8a93a4">&mdash; = none of that item at this mark</span>
+        </div>
+      </header>`;
+    /* Continuation sheets carry a slim header rather than none: a poster that has come off
+       the wall has to say what it is and which part it is, without spending the inch that
+       the KPIs and the legend cost. */
+    const HEAD_SLIM = (n,of)=>`<header class="slim"><div class="top"><div class="grow">
+      <h1>Embed delivery — quick reference <span class="cont">continued · sheet ${n} of ${of}</span></h1>
+      <div class="sub">${esc(meta.project||'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope||'Whole job')} &nbsp;·&nbsp; printed ${esc(meta.date||stamp())}</div>
+    </div></div></header>`;
+    const FOOTER = `<footer>
+      <div class="sig">Received by<div class="line"></div></div>
+      <div class="sig">Date<div class="line"></div></div>
+      <div class="sig">Notes / short shipments<div class="line"></div></div>
+    </footer>`;
     const STATUS = {
       'on-site':    { cls:'s-ok',   text:'ON SITE' },
       'stub-short': { cls:'s-stub', text:'BOLTS IN · STUB COL. SHORT' },
@@ -354,46 +388,81 @@
       'none':       { cls:'s-none', text:'NOT DELIVERED' },
     };
 
-    const body = rows.map(r=>{ const st = STATUS[r.state] || STATUS.none; return `<tr class="${st.cls}">
+    /* TWO COLUMNS PER SHEET, and the rows are paginated by hand.
+     *
+     * Landscape 17x11 is the poster shape asked for, but turning the sheet on its side costs
+     * six inches of HEIGHT — a single wide table drops from ~50 rows a page to ~28, so the
+     * job would run to three pages and a poster you have to shuffle is not a poster.
+     *
+     * Splitting each sheet into two columns puts the rows back: ~31 per column, ~62 per sheet,
+     * with room left over to make the type bigger rather than smaller. Reading order is down
+     * the left, then down the right, which is how a printed list is read.
+     *
+     * Paginated in JS rather than left to the browser: CSS column-count refuses to break a
+     * table cleanly, and letting the page break fall where it likes puts a header row at the
+     * bottom of a column. Chunking explicitly means every column starts with a header and no
+     * row is ever split. */
+    const PER_COL = 24;   // measured against a 75-mark job: 24 keeps each sheet to one page
+    const PER_PAGE = PER_COL * 2;
+    const tr = (r)=>{ const st = STATUS[r.state] || STATUS.none; return `<tr class="${st.cls}">
       <td class="ck"><span class="box"></span></td>
       <td class="mk">${esc(r.mark)}</td>
-      <td>${esc(desc(r.desc))}</td>
+      <td class="ds">${esc(desc(r.desc))}</td>
       <td class="ar">${esc(r.areas)}</td>
       <td class="q">${qty(r.bDel, r.bTot, r.bTr)}</td>
       <td class="q">${qty(r.sDel, r.sTot, r.sTr)}</td>
-      <td class="stat"><span class="badge ${st.cls}">${st.text}</span></td>
-      <td class="no">${esc(r.note)}</td></tr>`; }).join('');
+      <td class="stat"><span class="badge ${st.cls}">${st.text}</span></td></tr>`; };
+    const THEAD = `<thead><tr>
+      <th class="ck">&#10003;</th><th class="mk">MARK</th><th class="ds">DESCRIPTION</th><th class="ar">AREA</th>
+      <th class="q">BOLTS</th><th class="q">STUB COL.</th><th class="stat">STATUS</th>
+    </tr></thead>`;
+    const column = (list)=> list.length ? `<table>${THEAD}<tbody>${list.map(tr).join('')}</tbody></table>` : '<div></div>';
+    const pages = [];
+    for (let i=0; i<rows.length; i+=PER_PAGE) pages.push(rows.slice(i, i+PER_PAGE));
+    const sheets = pages.map((p, idx)=>`<div class="sheet${idx?' brk':''}">
+      ${idx===0 ? HEAD_FULL : HEAD_SLIM(idx+1, pages.length)}
+      <div class="cols"><div class="col">${column(p.slice(0, PER_COL))}</div><div class="col">${column(p.slice(PER_COL))}</div></div>
+      ${idx===pages.length-1 ? FOOTER : ''}
+      <div class="pg">${idx+1} / ${pages.length}</div></div>`).join('');
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title||'Embed delivery reference')}</title><style>
-      /* the sheet itself — 11x17 portrait, thin margins so the table gets the width */
-      @page { size: 11in 17in; margin: 0.4in 0.45in 0.5in; }
+      /* LANDSCAPE 17 x 11 — the poster shape */
+      @page { size: 17in 11in; margin: 0.38in 0.4in 0.34in; }
       * { box-sizing:border-box; }
-      body { margin:0; font-family:-apple-system,"Helvetica Neue",Arial,sans-serif; color:#0b0e13; font-size:10.5pt; }
-      header { border-bottom:3px solid #1E3A6B; padding-bottom:8px; margin-bottom:10px; }
-      h1 { margin:0; font-size:22pt; letter-spacing:-.01em; }
-      .sub { margin-top:3px; font-size:10.5pt; color:#41495a; }
-      .kpis { margin-top:9px; display:flex; gap:24px; font-size:10.5pt; align-items:baseline; }
-      .kpis b { font-size:15pt; }
-      .kpis .r { color:#B0341F; } .kpis .a { color:#8A6100; } .kpis .g { color:#2f7d52; }
+      body { margin:0; font-family:-apple-system,"Helvetica Neue",Arial,sans-serif; color:#0b0e13; font-size:11pt; }
+      header { border-bottom:3px solid #1E3A6B; padding-bottom:7px; margin-bottom:9px; }
+      h1 { margin:0; font-size:26pt; letter-spacing:-.015em; }
+      .sub { margin-top:2px; font-size:11pt; color:#41495a; }
+      .top { display:flex; align-items:flex-end; gap:26px; }
+      .top .grow { flex:1; }
+      .kpis { display:flex; gap:22px; font-size:11pt; align-items:baseline; white-space:nowrap; }
+      .kpis b { font-size:17pt; }
+      .kpis .r { color:#B0341F; } .kpis .g { color:#2f7d52; }
+      header.slim { padding-bottom:5px; margin-bottom:7px; }
+      header.slim h1 { font-size:17pt; }
+      .cont { font-size:10pt; font-weight:400; color:#41495a; }
+      .legend { margin-top:6px; font-size:9.5pt; color:#41495a; display:flex; gap:13px; flex-wrap:wrap; align-items:center; }
+      .cols { display:flex; gap:20px; align-items:flex-start; }
+      .col { flex:1 1 0; min-width:0; }
+      .sheet.brk { break-before:page; padding-top:8px; }
       table { width:100%; border-collapse:collapse; }
-      thead { display:table-header-group; }            /* the header repeats on page 2+ */
-      th { text-align:left; font-size:8pt; letter-spacing:.06em; text-transform:uppercase;
-           color:#41495a; border-bottom:1px solid #9aa3b4; padding:3px 5px; background:#fff; }
-      td { padding:4px 5px; border-bottom:1px solid #d9dee7; vertical-align:middle; }
+      th { text-align:left; font-size:8.5pt; letter-spacing:.06em; text-transform:uppercase;
+           color:#41495a; border-bottom:1.4px solid #46506a; padding:3px 4px; }
+      td { padding:4px; border-bottom:1px solid #d9dee7; vertical-align:middle; }
       tr { break-inside:avoid; }
-      .ck { width:24px; } .mk { width:70px; font-weight:700; font-size:12.5pt; font-family:ui-monospace,Menlo,monospace; }
-      .ar { width:56px; font-size:9pt; color:#41495a; }
-      .q { width:118px; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; }
+      /* bigger than the portrait sheet — this is meant to be read off a wall */
+      .ck { width:22px; } .mk { width:76px; font-weight:700; font-size:15pt; font-family:ui-monospace,Menlo,monospace; }
+      .ds { font-size:10.5pt; } .ar { width:44px; font-size:9.5pt; color:#41495a; }
+      .q  { width:96px; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; }
       .q .of { color:#8a93a4; font-size:9pt; }
-      .q .done { color:#2f7d52; font-weight:700; font-size:12pt; }
-      .q .short { color:#B0341F; font-weight:700; font-size:12pt; }
+      .q .done  { color:#2f7d52; font-weight:700; font-size:13.5pt; }
+      .q .short { color:#B0341F; font-weight:700; font-size:13.5pt; }
       .ok { color:#9aa3b4; }
-      .stat { width:176px; } .no { width:84px; font-size:8.5pt; color:#41495a; }
-      /* a real box to tick with a pencil — the whole point of printing it */
+      .stat { width:150px; }
       .box { display:inline-block; width:13px; height:13px; border:1.6px solid #46506a; border-radius:2px; }
-      .pill { display:inline-block; padding:0 5px; border-radius:9px; font-size:8pt; font-weight:700; margin-left:4px; white-space:nowrap; }
+      .pill { display:inline-block; padding:0 5px; border-radius:9px; font-size:8pt; font-weight:700; margin-left:3px; white-space:nowrap; }
       .pill.none { background:#fbe3de; color:#B0341F; } .pill.tr { background:#fdf0d3; color:#8A6100; }
-      .badge { display:inline-block; padding:2px 7px; border-radius:4px; font-size:8.5pt; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
+      .badge { display:inline-block; padding:2px 7px; border-radius:4px; font-size:9pt; font-weight:700; white-space:nowrap; }
       .badge.s-ok   { background:#e2f2e8; color:#2f7d52; }
       .badge.s-part { background:#fdf0d3; color:#8A6100; }
       .badge.s-none { background:#fbe3de; color:#B0341F; }
@@ -401,42 +470,13 @@
       .badge.s-stub { background:#8A3E00; color:#fff; }
       tr.s-stub td  { background:#fff2e0; }
       tr.s-stub .mk { color:#8A3E00; }
-      tbody tr.s-ok td { color:#5a6273; }              /* done rows recede so the gaps carry the page */
-      footer { margin-top:14px; padding-top:9px; border-top:1px solid #9aa3b4; font-size:9.5pt; color:#41495a; display:flex; gap:36px; }
-      .sig { flex:1; } .sig .line { margin-top:20px; border-bottom:1px solid #46506a; }
-      .legend { margin-top:7px; font-size:9pt; color:#41495a; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
-      .none-left { padding:26px; text-align:center; color:#41495a; font-size:13pt; }
-      @media print { .noprint { display:none; } }
+      tbody tr.s-ok td { color:#5a6273; }
+      footer { margin-top:11px; padding-top:8px; border-top:1px solid #9aa3b4; font-size:10pt; color:#41495a; display:flex; gap:40px; }
+      .sig { flex:1; } .sig .line { margin-top:19px; border-bottom:1px solid #46506a; }
+      .pg { position:fixed; right:0.4in; bottom:0.12in; font-size:8.5pt; color:#8a93a4; }
+      .none-left { padding:26px; text-align:center; color:#41495a; font-size:14pt; }
     </style></head><body>
-      <header>
-        <h1>Embed delivery — quick reference</h1>
-        <div class="sub">${esc(meta.project||'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope||'All sequences')} &nbsp;·&nbsp; printed ${esc(meta.date||stamp())}</div>
-        <div class="kpis">
-          <span class="g">Bolts on site <b class="g">${totals.bDel}</b> / ${totals.bTot}</span>
-          <span class="g">Stub col. on site <b class="g">${totals.sDel}</b> / ${totals.sTot}</span>
-          <span class="r">Still to come <b class="r">${totals.out}</b></span>
-          ${totals.stubShort?`<span style="color:#8A3E00">Bolts in, stub col. short <b style="color:#8A3E00">${totals.stubShort}</b> mark(s)</span>`:''}
-          <span>Marks <b>${totals.marks}</b></span>
-        </div>
-        <div class="legend">
-          <span><span class="badge s-ok">ON SITE</span> nothing outstanding</span>
-          <span><span class="badge s-stub">BOLTS IN · STUB COL. SHORT</span> looks done, is not</span>
-          <span><span class="badge s-part">PART DELIVERED</span></span>
-          <span><span class="badge s-none">NOT DELIVERED</span></span>
-        </div>
-      </header>
-      ${rows.length ? `<table><thead><tr>
-          <th class="ck">&#10003;</th><th class="mk">MARK</th><th>DESCRIPTION</th>
-          <th class="ar">AREA</th>
-          <th class="q">ANCHOR BOLTS</th><th class="q">STUB COLUMNS</th>
-          <th class="stat">STATUS</th><th class="no">NOTE</th>
-        </tr></thead><tbody>${body}</tbody></table>`
-        : '<div class="none-left">Nothing in this scope. Check the sequence filter and the delivery switches.</div>'}
-      <footer>
-        <div class="sig">Received by<div class="line"></div></div>
-        <div class="sig">Date<div class="line"></div></div>
-        <div class="sig">Notes / short shipments<div class="line"></div></div>
-      </footer>
+      ${rows.length ? sheets : '<div class="none-left">Nothing in this scope. Check the delivery switches and the search box.</div>'}
     </body></html>`;
 
     const f = document.createElement('iframe');
