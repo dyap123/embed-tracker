@@ -319,90 +319,90 @@ function Inventory({
     window.exportInventory(data, kind, SEQS);
   }
 
-  /* ── the 11x17 delivery list ────────────────────────────────────────────────
+  /* ── the 11x17 delivery reference ───────────────────────────────────────────
    *
-   * Built from the PINS, not from the inventory rows. A row's counts are per mark, and the
-   * guys receiving a truck need the mark AND where it lands — so this walks the individual
-   * embeds, keeps only those that are not on site, and re-groups them by sequence.
+   * Built from the PINS, not from the inventory rows: a row's counts are per mark, but a
+   * mark's delivery is per pin, and 12 of 20 delivered is the answer the field actually
+   * wants.
    *
-   * Deliberately ignores the delivery show/hide switches: the sheet is BY DEFINITION the
-   * not-on-site list, and inheriting a filter that happened to be set to "Delivered" would
-   * print an empty page with no hint why. The sequence filter and the search box ARE honoured
-   * — those are the "which part of the job am I looking at" controls, which is exactly the
-   * scope you would want on paper.
+   * It now HONOURS the delivery show/hide switches. It used to override them, on the
+   * reasoning that the sheet was by definition the not-on-site list — but the sheet is a
+   * reference now, so the toggles are how you choose which sheet you get: leave them alone
+   * for the full lookup, switch Delivered off for a pure pull list. One control, both jobs,
+   * and the header prints which one you chose so a sheet on the wall says what it is.
    */
   function printDelivery() {
     const sState = window.stubDeliveryState;
-    /* Scoped on siteDeliveryState — the WORST of the bolt and its stub column — not on the
-     * bolt alone.
+    /* A FLAT NUMERICAL LIST, and every mark on it — including the ones that are done.
      *
-     * The bolt's own state was wrong here, and wrong in the direction that matters. A stub
-     * column is set on the anchors AFTER the pour, so a cast-in bolt says nothing about
-     * whether its stub column has landed; filtering on the bolt dropped every
-     * bolt-on-site-stub-still-missing location off the sheet, which is the most common way to
-     * be short. Now an embed prints if EITHER item is still to come, and the two are counted
-     * in their own columns because they arrive on their own trucks. */
-    const out = embeds.filter(e => matchSeq(e) && matchEmbed(e) && window.siteDeliveryState(e) !== 'delivered');
-    const byS = {};
-    out.forEach(e => {
-      const s = seqMode === 'wcg' ? e.wcgPour || '—' : e.sequence || '—';
-      byS[s] || (byS[s] = {});
-      const m = byS[s][e.mark] || (byS[s][e.mark] = {
+     * Sequence grouping answers "what is late for the next pour". This answers a different
+     * question: someone in the field has a mark number in front of them and wants to know
+     * whether it is here. For that, the sort has to be the thing they are holding — the mark
+     * — and the delivered rows have to be PRESENT, because on an outstanding-only sheet a
+     * missing mark is ambiguous: delivered, or misread the number, or not in this scope?
+     * A row that says ON SITE answers it; a blank space does not.
+     *
+     * Sequence and area survive as columns, so it still tells you what a mark is for. */
+    const num = (a, b) => String(a).localeCompare(String(b), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+    const byMarkFlat = {};
+    embeds.filter(e => matchSeq(e) && matchEmbed(e) && matchDeliv(e)).forEach(e => {
+      const m = byMarkFlat[e.mark] || (byMarkFlat[e.mark] = {
         mark: e.mark,
         desc: e.typeLabel,
-        bNone: 0,
-        bTransit: 0,
-        sNone: 0,
-        sTransit: 0,
-        grids: [],
+        bTot: 0,
+        bDel: 0,
+        bTr: 0,
+        sTot: 0,
+        sDel: 0,
+        sTr: 0,
+        seqs: new Set(),
         areas: new Set(),
         knife: 0,
         stubTypes: new Set()
       });
+      m.bTot++;
       const b = dState(e);
-      if (b === 'transit') m.bTransit++;else if (b !== 'delivered') m.bNone++;
-      const st = sState(e); // null when this embed has no stub column
-      if (st === 'transit') m.sTransit++;else if (st === 'none') m.sNone++;
-      if (e.grid) m.grids.push(e.grid);
+      if (b === 'delivered') m.bDel++;else if (b === 'transit') m.bTr++;
+      if (e.hasStub) {
+        m.sTot++;
+        const st = sState(e);
+        if (st === 'delivered') m.sDel++;else if (st === 'transit') m.sTr++;
+      }
+      if (e.sequence) m.seqs.add(e.sequence);
       if (e.area) m.areas.add(e.area);
       if (e.hasKnife) m.knife++;
       if (e.hasStub && e.stubType) m.stubTypes.add(e.stubType);
     });
-    const groups = Object.keys(byS).map(s => {
-      const meta = seqMeta[s] || {};
-      const wcg = wcgPours.find(w => w.id === s);
-      const needed = meta.needed || (wcg ? wcg.date : '') || '';
-      const ni = needed ? neededInfo(needed) : null;
-      const rowsOut = Object.values(byS[s]).map(m => ({
+    const flat = Object.values(byMarkFlat).sort((a, b) => num(a.mark, b.mark)).map(m => {
+      const outstanding = m.bTot - m.bDel + (m.sTot - m.sDel);
+      return {
         mark: m.mark,
         desc: m.desc,
-        bolts: m.bNone + m.bTransit,
-        bNone: m.bNone,
-        bTransit: m.bTransit,
-        stubs: m.sNone + m.sTransit,
-        sNone: m.sNone,
-        sTransit: m.sTransit,
-        qty: m.bNone + m.bTransit + m.sNone + m.sTransit,
-        // a long grid list is noise on paper — show the first dozen and say how many more
-        locations: m.grids.length > 12 ? m.grids.slice(0, 12).join(', ') + ' +' + (m.grids.length - 12) + ' more' : m.grids.join(', '),
+        seqs: Array.from(m.seqs).sort(num).map(seqLabelOf).join(', '),
         areas: Array.from(m.areas).sort().join(', '),
+        bTot: m.bTot,
+        bDel: m.bDel,
+        bTr: m.bTr,
+        sTot: m.sTot,
+        sDel: m.sDel,
+        sTr: m.sTr,
+        outstanding,
+        /* BOLTS IN, STUB COLUMN STILL OUT gets its own state, not a shared "partial".
+         *
+         * It is the condition that reads as finished and is not: the bolts are cast, the
+         * location looks done from the deck, and the stub column that goes on top of it is
+         * still on a truck somewhere. Lumping it in with "partially delivered" is how it gets
+         * missed, so it prints as its own loud status with the row shaded behind it. */
+        state: outstanding === 0 ? 'on-site' : m.bTot > 0 && m.bDel === m.bTot && m.sDel < m.sTot ? 'stub-short' : m.bDel + m.sDel > 0 ? 'partial' : 'none',
         note: [m.knife ? m.knife + ' knife pl.' : '', Array.from(m.stubTypes).sort().join('/')].filter(Boolean).join(' · ')
-      })).sort((a, b) => b.bNone + b.sNone - (a.bNone + a.sNone) || String(a.mark).localeCompare(String(b.mark), undefined, {
-        numeric: true
-      }));
-      return {
-        key: s,
-        label: seqLabelOf(s),
-        needed,
-        daysLeft: ni ? ni.days : null,
-        rows: rowsOut
       };
-    })
-    // soonest deadline first; anything with no date sinks to the bottom rather than sorting as year 0
-    .sort((a, b) => (a.needed ? 0 : 1) - (b.needed ? 0 : 1) || String(a.needed).localeCompare(String(b.needed)) || String(a.label).localeCompare(String(b.label)));
-    window.printDeliveryList(groups, {
+    });
+    window.printDeliveryList(flat, {
       project: 'LA Convention Center · A101',
-      scope: (seqFilter === 'all' ? 'All sequences' : (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter)) + (q.trim() ? ` · search "${q.trim()}"` : ''),
+      scope: (seqFilter === 'all' ? 'All sequences' : (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter)) + (delivAll ? '' : ' · showing ' + DELIV_STATES.filter(x => delivShow[x.key]).map(x => x.label).join(' + ')) + (q.trim() ? ` · search "${q.trim()}"` : ''),
       date: todayISO()
     });
   }
@@ -709,8 +709,8 @@ function Inventory({
     size: "sm",
     icon: "inventory",
     onClick: printDelivery,
-    title: "Print an 11x17 sheet of every anchor bolt not yet on site \u2014 grouped by sequence, with tick boxes for the yard"
-  }, "Delivery list 11\xD717"), /*#__PURE__*/React.createElement(Btn, {
+    title: "Print an 11x17 quick-reference of every mark in numerical order \u2014 bolts and stub columns delivered vs outstanding. Switch Delivered off above to print a pull list instead."
+  }, "Print 11\xD717"), /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
     icon: "export",

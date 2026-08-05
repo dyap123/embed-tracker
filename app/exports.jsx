@@ -319,104 +319,116 @@
    * Rendered into a hidden IFRAME, not a popup: window.open is what blockers eat, and a
    * blocked print looks exactly like a broken button.
    */
-  function printDeliveryList(groups, meta){
+  function printDeliveryList(rows, meta){
     meta = meta || {};
     const esc = (v)=> String(v==null?'':v).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-    const sum = (g,f)=> g.rows.reduce((x,r)=>x+(r[f]||0),0);
-    const totals = groups.reduce((a,g)=>({ marks:a.marks+g.rows.length,
-      qty:a.qty+sum(g,'qty'), bolts:a.bolts+sum(g,'bolts'), stubs:a.stubs+sum(g,'stubs'),
-      none:a.none+sum(g,'bNone')+sum(g,'sNone'),
-      transit:a.transit+sum(g,'bTransit')+sum(g,'sTransit') }),
-      {marks:0,qty:0,bolts:0,stubs:0,none:0,transit:0});
-    /* A cell that says both "how many" and "what state" — the two questions the yard asks in
-     * that order. Blank rather than a zero when there is nothing outstanding of that kind, so
-     * the eye lands only on what is actually missing. */
-    const cell = (none, transit)=> (none+transit) === 0 ? '<span class="ok">—</span>'
-      : `<b>${none+transit}</b>${none?`<span class="pill none">${none} not del.</span>`:''}${transit?`<span class="pill tr">${transit} on way</span>`:''}`;
+    const N = (v)=> v==null?0:v;
+    const totals = rows.reduce((a,r)=>({
+      marks: a.marks+1,
+      bTot:a.bTot+N(r.bTot), bDel:a.bDel+N(r.bDel),
+      sTot:a.sTot+N(r.sTot), sDel:a.sDel+N(r.sDel),
+      out:a.out+N(r.outstanding),
+      stubShort: a.stubShort + (r.state==='stub-short'?1:0),
+    }), {marks:0,bTot:0,bDel:0,sTot:0,sDel:0,out:0,stubShort:0});
 
-    const section = (g)=>{
-      const due = g.needed ? esc(g.needed) : '';
-      const late = g.daysLeft!=null && g.daysLeft < 0;
-      const soon = g.daysLeft!=null && g.daysLeft >= 0 && g.daysLeft <= 7;
-      const when = g.daysLeft==null ? '' :
-        late ? `<b class="late">${Math.abs(g.daysLeft)}d OVERDUE</b>`
-             : `<b class="${soon?'soon':''}">${g.daysLeft}d left</b>`;
-      return `<section>
-        <h2><span class="seq">${esc(g.label)}</span>
-          <span class="due">${due?`needed by ${due} ${when}`:'no needed-by date set'}</span>
-          <span class="cnt">${sum(g,'bolts')} bolt${sum(g,'bolts')===1?'':'s'} · ${sum(g,'stubs')} stub col. · ${g.rows.length} mark(s)</span></h2>
-        <table>
-          <thead><tr>
-            <th class="ck">✓</th><th class="mk">MARK</th><th>DESCRIPTION</th>
-            <th class="q">ANCHOR BOLTS</th><th class="q">STUB COLUMNS</th>
-            <th>LOCATIONS</th><th class="ar">AREA</th><th class="no">NOTE</th>
-          </tr></thead>
-          <tbody>${g.rows.map(r=>`<tr>
-            <td class="ck"><span class="box"></span></td>
-            <td class="mk">${esc(r.mark)}</td>
-            <td>${esc(r.desc||'Anchor rod')}</td>
-            <td class="q">${cell(r.bNone, r.bTransit)}</td>
-            <td class="q">${cell(r.sNone, r.sTransit)}</td>
-            <td class="loc">${esc(r.locations)}</td>
-            <td class="ar">${esc(r.areas)}</td>
-            <td class="no">${esc(r.note)}</td></tr>`).join('')}</tbody>
-        </table></section>`;
+    /* n / N, with the shortfall doing the shouting.
+     *
+     * A bare "9" cannot be read without knowing the total, and a bare fraction reads the same
+     * whether it is 19/20 or 1/20. So the count is stated as delivered-of-total and the gap is
+     * called out beside it only when there IS one — nothing to notice means nothing printed. */
+    const qty = (del, tot, tr)=>{
+      if (!tot) return '<span class="ok">—</span>';
+      const short = tot - del;
+      return `<span class="${short?'short':'done'}">${del}<span class="of">/${tot}</span></span>`
+        + (short ? `<span class="pill none">${short} short</span>` : '')
+        + (tr ? `<span class="pill tr">${tr} on way</span>` : '');
+    };
+    const STATUS = {
+      'on-site':    { cls:'s-ok',   text:'ON SITE' },
+      'stub-short': { cls:'s-stub', text:'BOLTS IN · STUB COL. SHORT' },
+      'partial':    { cls:'s-part', text:'PART DELIVERED' },
+      'none':       { cls:'s-none', text:'NOT DELIVERED' },
     };
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title||'To be delivered')}</title><style>
+    const body = rows.map(r=>{ const st = STATUS[r.state] || STATUS.none; return `<tr class="${st.cls}">
+      <td class="ck"><span class="box"></span></td>
+      <td class="mk">${esc(r.mark)}</td>
+      <td>${esc(r.desc||'Anchor rod')}</td>
+      <td class="sq">${esc(r.seqs)}</td>
+      <td class="ar">${esc(r.areas)}</td>
+      <td class="q">${qty(r.bDel, r.bTot, r.bTr)}</td>
+      <td class="q">${qty(r.sDel, r.sTot, r.sTr)}</td>
+      <td class="stat"><span class="badge ${st.cls}">${st.text}</span></td>
+      <td class="no">${esc(r.note)}</td></tr>`; }).join('');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title||'Embed delivery reference')}</title><style>
       /* the sheet itself — 11x17 portrait, thin margins so the table gets the width */
       @page { size: 11in 17in; margin: 0.4in 0.45in 0.5in; }
       * { box-sizing:border-box; }
       body { margin:0; font-family:-apple-system,"Helvetica Neue",Arial,sans-serif; color:#0b0e13; font-size:10.5pt; }
-      header { border-bottom:3px solid #1E3A6B; padding-bottom:8px; margin-bottom:12px; }
-      h1 { margin:0; font-size:23pt; letter-spacing:-.01em; }
+      header { border-bottom:3px solid #1E3A6B; padding-bottom:8px; margin-bottom:10px; }
+      h1 { margin:0; font-size:22pt; letter-spacing:-.01em; }
       .sub { margin-top:3px; font-size:10.5pt; color:#41495a; }
-      .kpis { margin-top:9px; display:flex; gap:26px; font-size:11pt; }
-      .kpis b { font-size:16pt; }
-      .kpis .r { color:#B0341F; } .kpis .a { color:#8A6100; }
-      section { margin-bottom:15px; break-inside:avoid; }
-      h2 { margin:0 0 5px; font-size:12pt; display:flex; align-items:baseline; gap:12px;
-           border-bottom:1.5px solid #1E3A6B; padding-bottom:3px; }
-      h2 .seq { font-size:14pt; }
-      h2 .due { font-weight:400; color:#41495a; font-size:10pt; }
-      h2 .cnt { margin-left:auto; font-weight:400; color:#41495a; font-size:10pt; }
-      .late { color:#B0341F; } .soon { color:#8A6100; }
+      .kpis { margin-top:9px; display:flex; gap:24px; font-size:10.5pt; align-items:baseline; }
+      .kpis b { font-size:15pt; }
+      .kpis .r { color:#B0341F; } .kpis .a { color:#8A6100; } .kpis .g { color:#2f7d52; }
       table { width:100%; border-collapse:collapse; }
+      thead { display:table-header-group; }            /* the header repeats on page 2+ */
       th { text-align:left; font-size:8pt; letter-spacing:.06em; text-transform:uppercase;
-           color:#41495a; border-bottom:1px solid #9aa3b4; padding:3px 5px; }
-      td { padding:5px; border-bottom:1px solid #d9dee7; vertical-align:top; }
-      tbody tr:nth-child(even) td { background:#f3f5f9; }
-      .ck { width:26px; } .mk { width:74px; font-weight:700; font-size:12pt; font-family:ui-monospace,Menlo,monospace; }
-      .n { width:44px; text-align:right; font-family:ui-monospace,Menlo,monospace; }
-      .big { font-size:13pt; font-weight:700; }
-      .q { width:132px; white-space:nowrap; }
-      .q b { font-size:13pt; margin-right:5px; font-family:ui-monospace,Menlo,monospace; }
+           color:#41495a; border-bottom:1px solid #9aa3b4; padding:3px 5px; background:#fff; }
+      td { padding:4px 5px; border-bottom:1px solid #d9dee7; vertical-align:middle; }
+      tr { break-inside:avoid; }
+      .ck { width:24px; } .mk { width:70px; font-weight:700; font-size:12.5pt; font-family:ui-monospace,Menlo,monospace; }
+      .sq { width:74px; font-size:9pt; color:#41495a; } .ar { width:52px; font-size:9pt; color:#41495a; }
+      .q { width:118px; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; }
+      .q .of { color:#8a93a4; font-size:9pt; }
+      .q .done { color:#2f7d52; font-weight:700; font-size:12pt; }
+      .q .short { color:#B0341F; font-weight:700; font-size:12pt; }
       .ok { color:#9aa3b4; }
-      .ar { width:58px; } .no { width:92px; font-size:9pt; }
-      .loc { font-family:ui-monospace,Menlo,monospace; font-size:8.5pt; color:#2c3446; word-break:break-word; }
+      .stat { width:176px; } .no { width:84px; font-size:8.5pt; color:#41495a; }
       /* a real box to tick with a pencil — the whole point of printing it */
       .box { display:inline-block; width:13px; height:13px; border:1.6px solid #46506a; border-radius:2px; }
-      .pill { display:inline-block; padding:1px 6px; border-radius:9px; font-size:8.5pt; font-weight:700; margin-right:4px; white-space:nowrap; }
+      .pill { display:inline-block; padding:0 5px; border-radius:9px; font-size:8pt; font-weight:700; margin-left:4px; white-space:nowrap; }
       .pill.none { background:#fbe3de; color:#B0341F; } .pill.tr { background:#fdf0d3; color:#8A6100; }
-      footer { margin-top:16px; padding-top:9px; border-top:1px solid #9aa3b4; font-size:9.5pt; color:#41495a;
-               display:flex; gap:40px; }
-      .sig { flex:1; } .sig .line { margin-top:22px; border-bottom:1px solid #46506a; }
-      .none-left { padding:26px; text-align:center; color:#2f7d52; font-size:14pt; font-weight:700; }
+      .badge { display:inline-block; padding:2px 7px; border-radius:4px; font-size:8.5pt; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
+      .badge.s-ok   { background:#e2f2e8; color:#2f7d52; }
+      .badge.s-part { background:#fdf0d3; color:#8A6100; }
+      .badge.s-none { background:#fbe3de; color:#B0341F; }
+      /* bolts in, stub column still out — the one that looks finished from the deck and is not */
+      .badge.s-stub { background:#8A3E00; color:#fff; }
+      tr.s-stub td  { background:#fff2e0; }
+      tr.s-stub .mk { color:#8A3E00; }
+      tbody tr.s-ok td { color:#5a6273; }              /* done rows recede so the gaps carry the page */
+      footer { margin-top:14px; padding-top:9px; border-top:1px solid #9aa3b4; font-size:9.5pt; color:#41495a; display:flex; gap:36px; }
+      .sig { flex:1; } .sig .line { margin-top:20px; border-bottom:1px solid #46506a; }
+      .legend { margin-top:7px; font-size:9pt; color:#41495a; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+      .none-left { padding:26px; text-align:center; color:#41495a; font-size:13pt; }
       @media print { .noprint { display:none; } }
     </style></head><body>
       <header>
-        <h1>TO BE DELIVERED — anchor bolts &amp; stub columns</h1>
+        <h1>Embed delivery — quick reference</h1>
         <div class="sub">${esc(meta.project||'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope||'All sequences')} &nbsp;·&nbsp; printed ${esc(meta.date||stamp())}</div>
         <div class="kpis">
-          <span>Anchor bolts <b>${totals.bolts}</b></span>
-          <span>Stub columns <b>${totals.stubs}</b></span>
-          <span class="r">Not delivered <b class="r">${totals.none}</b></span>
-          <span class="a">On the way <b class="a">${totals.transit}</b></span>
+          <span class="g">Bolts on site <b class="g">${totals.bDel}</b> / ${totals.bTot}</span>
+          <span class="g">Stub col. on site <b class="g">${totals.sDel}</b> / ${totals.sTot}</span>
+          <span class="r">Still to come <b class="r">${totals.out}</b></span>
+          ${totals.stubShort?`<span style="color:#8A3E00">Bolts in, stub col. short <b style="color:#8A3E00">${totals.stubShort}</b> mark(s)</span>`:''}
           <span>Marks <b>${totals.marks}</b></span>
         </div>
+        <div class="legend">
+          <span><span class="badge s-ok">ON SITE</span> nothing outstanding</span>
+          <span><span class="badge s-stub">BOLTS IN · STUB COL. SHORT</span> looks done, is not</span>
+          <span><span class="badge s-part">PART DELIVERED</span></span>
+          <span><span class="badge s-none">NOT DELIVERED</span></span>
+        </div>
       </header>
-      ${groups.length ? groups.map(section).join('')
-        : '<div class="none-left">Everything on this scope is on site. Nothing to deliver.</div>'}
+      ${rows.length ? `<table><thead><tr>
+          <th class="ck">&#10003;</th><th class="mk">MARK</th><th>DESCRIPTION</th>
+          <th class="sq">SEQ</th><th class="ar">AREA</th>
+          <th class="q">ANCHOR BOLTS</th><th class="q">STUB COLUMNS</th>
+          <th class="stat">STATUS</th><th class="no">NOTE</th>
+        </tr></thead><tbody>${body}</tbody></table>`
+        : '<div class="none-left">Nothing in this scope. Check the sequence filter and the delivery switches.</div>'}
       <footer>
         <div class="sig">Received by<div class="line"></div></div>
         <div class="sig">Date<div class="line"></div></div>
