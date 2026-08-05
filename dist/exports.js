@@ -882,8 +882,155 @@
     doc.save(fname + '.pdf');
     return fname + '.pdf';
   }
+
+  /* ── 11x17 DELIVERY LIST ─────────────────────────────────────────────────────
+   *
+   * What is NOT on site yet, on one sheet, for the guys.
+   *
+   * Printed from the BROWSER rather than built with jsPDF: it costs no library download,
+   * the text stays vector-crisp at 11x17 on a plotter, and "Save as PDF" is already in the
+   * print dialog if a file is what you wanted. An @page rule sets the real sheet size, so it
+   * comes out of the tray at scale instead of a shrunk-to-fit Letter.
+   *
+   * PORTRAIT 11 wide x 17 tall on purpose. This is a list — rows are the scarce resource, and
+   * the tall sheet takes about 45 of them. Landscape would buy column width the data does not
+   * need and cost a third of the lines.
+   *
+   * Grouped by SEQUENCE and ordered by needed-by date, because that is the order the material
+   * is actually wanted in; a mark that is late for Seq 1 is a different problem from the same
+   * mark being short for Seq 4. Within a group, NOT DELIVERED sorts above ON THE WAY — the
+   * first is a phone call to the supplier, the second is just waiting.
+   *
+   * Rendered into a hidden IFRAME, not a popup: window.open is what blockers eat, and a
+   * blocked print looks exactly like a broken button.
+   */
+  function printDeliveryList(groups, meta) {
+    meta = meta || {};
+    const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;'
+    })[c]);
+    const totals = groups.reduce((a, g) => ({
+      marks: a.marks + g.rows.length,
+      qty: a.qty + g.rows.reduce((x, r) => x + r.qty, 0),
+      none: a.none + g.rows.reduce((x, r) => x + r.none, 0),
+      transit: a.transit + g.rows.reduce((x, r) => x + r.transit, 0)
+    }), {
+      marks: 0,
+      qty: 0,
+      none: 0,
+      transit: 0
+    });
+    const section = g => {
+      const due = g.needed ? esc(g.needed) : '';
+      const late = g.daysLeft != null && g.daysLeft < 0;
+      const soon = g.daysLeft != null && g.daysLeft >= 0 && g.daysLeft <= 7;
+      const when = g.daysLeft == null ? '' : late ? `<b class="late">${Math.abs(g.daysLeft)}d OVERDUE</b>` : `<b class="${soon ? 'soon' : ''}">${g.daysLeft}d left</b>`;
+      return `<section>
+        <h2><span class="seq">${esc(g.label)}</span>
+          <span class="due">${due ? `needed by ${due} ${when}` : 'no needed-by date set'}</span>
+          <span class="cnt">${g.rows.reduce((x, r) => x + r.qty, 0)} pc · ${g.rows.length} mark(s)</span></h2>
+        <table>
+          <thead><tr>
+            <th class="ck">✓</th><th class="mk">MARK</th><th>DESCRIPTION</th>
+            <th class="n">QTY</th><th class="st">STATUS</th><th>LOCATIONS</th><th class="ar">AREA</th><th class="no">NOTE</th>
+          </tr></thead>
+          <tbody>${g.rows.map(r => `<tr>
+            <td class="ck"><span class="box"></span></td>
+            <td class="mk">${esc(r.mark)}</td>
+            <td>${esc(r.desc || 'Anchor rod')}</td>
+            <td class="n big">${r.qty}</td>
+            <td class="st">${r.none ? `<span class="pill none">${r.none} not delivered</span>` : ''}${r.transit ? `<span class="pill tr">${r.transit} on the way</span>` : ''}</td>
+            <td class="loc">${esc(r.locations)}</td>
+            <td class="ar">${esc(r.areas)}</td>
+            <td class="no">${esc(r.note)}</td></tr>`).join('')}</tbody>
+        </table></section>`;
+    };
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title || 'Anchor bolts to deliver')}</title><style>
+      /* the sheet itself — 11x17 portrait, thin margins so the table gets the width */
+      @page { size: 11in 17in; margin: 0.4in 0.45in 0.5in; }
+      * { box-sizing:border-box; }
+      body { margin:0; font-family:-apple-system,"Helvetica Neue",Arial,sans-serif; color:#0b0e13; font-size:10.5pt; }
+      header { border-bottom:3px solid #1E3A6B; padding-bottom:8px; margin-bottom:12px; }
+      h1 { margin:0; font-size:23pt; letter-spacing:-.01em; }
+      .sub { margin-top:3px; font-size:10.5pt; color:#41495a; }
+      .kpis { margin-top:9px; display:flex; gap:26px; font-size:11pt; }
+      .kpis b { font-size:16pt; }
+      .kpis .r { color:#B0341F; } .kpis .a { color:#8A6100; }
+      section { margin-bottom:15px; break-inside:avoid; }
+      h2 { margin:0 0 5px; font-size:12pt; display:flex; align-items:baseline; gap:12px;
+           border-bottom:1.5px solid #1E3A6B; padding-bottom:3px; }
+      h2 .seq { font-size:14pt; }
+      h2 .due { font-weight:400; color:#41495a; font-size:10pt; }
+      h2 .cnt { margin-left:auto; font-weight:400; color:#41495a; font-size:10pt; }
+      .late { color:#B0341F; } .soon { color:#8A6100; }
+      table { width:100%; border-collapse:collapse; }
+      th { text-align:left; font-size:8pt; letter-spacing:.06em; text-transform:uppercase;
+           color:#41495a; border-bottom:1px solid #9aa3b4; padding:3px 5px; }
+      td { padding:5px; border-bottom:1px solid #d9dee7; vertical-align:top; }
+      tbody tr:nth-child(even) td { background:#f3f5f9; }
+      .ck { width:26px; } .mk { width:74px; font-weight:700; font-size:12pt; font-family:ui-monospace,Menlo,monospace; }
+      .n { width:44px; text-align:right; font-family:ui-monospace,Menlo,monospace; }
+      .big { font-size:13pt; font-weight:700; }
+      .st { width:150px; } .ar { width:64px; } .no { width:96px; font-size:9pt; }
+      .loc { font-family:ui-monospace,Menlo,monospace; font-size:8.5pt; color:#2c3446; word-break:break-word; }
+      /* a real box to tick with a pencil — the whole point of printing it */
+      .box { display:inline-block; width:13px; height:13px; border:1.6px solid #46506a; border-radius:2px; }
+      .pill { display:inline-block; padding:1px 6px; border-radius:9px; font-size:8.5pt; font-weight:700; margin-right:4px; white-space:nowrap; }
+      .pill.none { background:#fbe3de; color:#B0341F; } .pill.tr { background:#fdf0d3; color:#8A6100; }
+      footer { margin-top:16px; padding-top:9px; border-top:1px solid #9aa3b4; font-size:9.5pt; color:#41495a;
+               display:flex; gap:40px; }
+      .sig { flex:1; } .sig .line { margin-top:22px; border-bottom:1px solid #46506a; }
+      .none-left { padding:26px; text-align:center; color:#2f7d52; font-size:14pt; font-weight:700; }
+      @media print { .noprint { display:none; } }
+    </style></head><body>
+      <header>
+        <h1>Anchor bolts — TO BE DELIVERED</h1>
+        <div class="sub">${esc(meta.project || 'LA Convention Center · A101')} &nbsp;·&nbsp; ${esc(meta.scope || 'All sequences')} &nbsp;·&nbsp; printed ${esc(meta.date || stamp())}</div>
+        <div class="kpis">
+          <span>Still to come <b>${totals.qty}</b> pc</span>
+          <span class="r">Not delivered <b class="r">${totals.none}</b></span>
+          <span class="a">On the way <b class="a">${totals.transit}</b></span>
+          <span>Marks <b>${totals.marks}</b></span>
+        </div>
+      </header>
+      ${groups.length ? groups.map(section).join('') : '<div class="none-left">Everything on this scope is on site. Nothing to deliver.</div>'}
+      <footer>
+        <div class="sig">Received by<div class="line"></div></div>
+        <div class="sig">Date<div class="line"></div></div>
+        <div class="sig">Notes / short shipments<div class="line"></div></div>
+      </footer>
+    </body></html>`;
+    const f = document.createElement('iframe');
+    f.setAttribute('aria-hidden', 'true');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    const d = f.contentWindow.document;
+    d.open();
+    d.write(html);
+    d.close();
+    const go = () => {
+      try {
+        f.contentWindow.focus();
+        f.contentWindow.print();
+      } catch (e) {
+        alert('Could not open the print dialog: ' + e.message);
+      }
+      // Safari fires print() synchronously; give the dialog a beat before pulling the frame.
+      setTimeout(() => {
+        try {
+          document.body.removeChild(f);
+        } catch (_) {}
+      }, 60000);
+    };
+    if (d.readyState === 'complete') setTimeout(go, 80);else f.onload = () => setTimeout(go, 80);
+    return totals;
+  }
   Object.assign(window, {
     exportEmbeds,
-    exportInventory
+    exportInventory,
+    printDeliveryList
   });
 })();

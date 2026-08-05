@@ -13,30 +13,32 @@ const SELECT_STYLE = {
   colorScheme: 'dark',
   cursor: 'pointer'
 };
-const DELIV_FILTERS = [
-// delivery-status scope for the inventory page
-{
-  value: 'all',
-  label: 'All deliveries'
-}, {
-  value: 'transit',
-  label: 'Incoming'
+/* Delivery status is now three INDEPENDENT show/hide switches, not one scope picker.
+ *
+ * The dropdown could only ever say "show me exactly one of these", so the combination the
+ * yard actually asks for — everything that is NOT on site, i.e. not-delivered AND on-the-way
+ * together — needed its own pre-baked entry ("Outstanding"), and any other pairing was
+ * unreachable. Three toggles express all of it, including the old presets: all on = All,
+ * none+transit = Outstanding, none alone = Not delivered, and so on.
+ */
+const DELIV_STATES = [{
+  key: 'none',
+  label: 'Not delivered',
+  color: '#F4674F'
 },
-// on the way — what's coming in to check off
+// not on site / not ordered
 {
-  value: 'none',
-  label: 'Not delivered'
+  key: 'transit',
+  label: 'On the way',
+  color: '#F5C24B'
 },
-// not on site yet / not ordered
+// shipped, not landed
 {
-  value: 'outstanding',
-  label: 'Outstanding'
-},
-// anything not fully delivered
-{
-  value: 'delivered',
-  label: 'Delivered'
-}];
+  key: 'delivered',
+  label: 'Delivered',
+  color: '#3FBF7F'
+} // on site
+];
 // urgency for a sequence "needed by" date — parses the ISO as a LOCAL date (like inspDaysUntil in MapScreen)
 function neededInfo(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
@@ -102,7 +104,20 @@ function Inventory({
   const [q, setQ] = React.useState(''); // search
   const [seqMode, setSeqMode] = React.useState('pwjv'); // 'pwjv' (embed.sequence) | 'wcg' (which WCG pour it sits in)
   const [seqFilter, setSeqFilter] = React.useState('all'); // scope counts + check-off to one sequence / pour
-  const [delivFilter, setDelivFilter] = React.useState('all'); // scope to a delivery status (incoming / awaiting / delivered)
+  // which delivery states are SHOWN — all three on by default (see DELIV_STATES)
+  const [delivShow, setDelivShow] = React.useState({
+    none: true,
+    transit: true,
+    delivered: true
+  });
+  const toggleDeliv = k => setDelivShow(s => {
+    const n = {
+      ...s,
+      [k]: !s[k]
+    };
+    // never let the last one off — an empty inventory reads as "no data", not as "you hid it all"
+    return Object.values(n).some(Boolean) ? n : s;
+  });
   const [sortBy, setSortBy] = React.useState('mark'); // 'mark' | 'recvDesc' | 'recvAsc'
   const [viewMode, setViewMode] = React.useState('table'); // 'table' (by mark) | 'summary' (grouped cards)
   const [groupBy, setGroupBy] = React.useState('sequence'); // summary grouping: 'sequence' | 'area' | 'delivery' | 'attr'
@@ -115,9 +130,11 @@ function Inventory({
   // sequence matcher (PWJV by embed.sequence, WCG by which pour zone the embed sits in)
   const matchSeq = e => seqFilter === 'all' ? true : seqMode === 'wcg' ? e.wcgPour === seqFilter : e.sequence === seqFilter;
   const seqLabelOf = v => seqMode === 'wcg' ? (wcgPours.find(w => w.id === v) || {}).label || v : seqLabel(v);
-  // delivery-status matcher: incoming = on the way, awaiting = not delivered yet, outstanding = anything not fully delivered
-  const matchDeliv = e => delivFilter === 'all' ? true : delivFilter === 'transit' ? dState(e) === 'transit' : delivFilter === 'none' ? dState(e) === 'none' : delivFilter === 'delivered' ? dState(e) === 'delivered' : delivFilter === 'outstanding' ? dState(e) !== 'delivered' : true;
-  const anyFilter = seqFilter !== 'all' || delivFilter !== 'all';
+  // delivery-status matcher — straight lookup against the three show/hide switches
+  const matchDeliv = e => !!delivShow[dState(e)];
+  const delivAll = DELIV_STATES.every(s => delivShow[s.key]);
+  const delivSubLabel = delivAll ? '' : ' · ' + DELIV_STATES.filter(s => delivShow[s.key]).map(s => s.label).join(' + ');
+  const anyFilter = seqFilter !== 'all' || !delivAll;
   // pins in scope of the sequence + delivery filters (drives every count + the bulk check-off)
   const scoped = embeds.filter(e => matchSeq(e) && matchDeliv(e));
   // scoped pins grouped by mark — source for per-mark counts, by-date delivery history, and bulk check-off
@@ -302,6 +319,75 @@ function Inventory({
     window.exportInventory(data, kind, SEQS);
   }
 
+  /* ── the 11x17 delivery list ────────────────────────────────────────────────
+   *
+   * Built from the PINS, not from the inventory rows. A row's counts are per mark, and the
+   * guys receiving a truck need the mark AND where it lands — so this walks the individual
+   * embeds, keeps only those that are not on site, and re-groups them by sequence.
+   *
+   * Deliberately ignores the delivery show/hide switches: the sheet is BY DEFINITION the
+   * not-on-site list, and inheriting a filter that happened to be set to "Delivered" would
+   * print an empty page with no hint why. The sequence filter and the search box ARE honoured
+   * — those are the "which part of the job am I looking at" controls, which is exactly the
+   * scope you would want on paper.
+   */
+  function printDelivery() {
+    const out = embeds.filter(e => matchSeq(e) && matchEmbed(e) && dState(e) !== 'delivered');
+    const byS = {};
+    out.forEach(e => {
+      const s = seqMode === 'wcg' ? e.wcgPour || '—' : e.sequence || '—';
+      byS[s] || (byS[s] = {});
+      const m = byS[s][e.mark] || (byS[s][e.mark] = {
+        mark: e.mark,
+        desc: e.typeLabel,
+        none: 0,
+        transit: 0,
+        grids: [],
+        areas: new Set(),
+        knife: 0,
+        stub: 0
+      });
+      if (dState(e) === 'transit') m.transit++;else m.none++;
+      if (e.grid) m.grids.push(e.grid);
+      if (e.area) m.areas.add(e.area);
+      if (e.hasKnife) m.knife++;
+      if (e.hasStub && window.stubDeliveryState(e) !== 'delivered') m.stub++;
+    });
+    const groups = Object.keys(byS).map(s => {
+      const meta = seqMeta[s] || {};
+      const wcg = wcgPours.find(w => w.id === s);
+      const needed = meta.needed || (wcg ? wcg.date : '') || '';
+      const ni = needed ? neededInfo(needed) : null;
+      const rowsOut = Object.values(byS[s]).map(m => ({
+        mark: m.mark,
+        desc: m.desc,
+        qty: m.none + m.transit,
+        none: m.none,
+        transit: m.transit,
+        // a long grid list is noise on paper — show the first dozen and say how many more
+        locations: m.grids.length > 12 ? m.grids.slice(0, 12).join(', ') + ' +' + (m.grids.length - 12) + ' more' : m.grids.join(', '),
+        areas: Array.from(m.areas).sort().join(', '),
+        note: [m.knife ? m.knife + ' knife pl.' : '', m.stub ? m.stub + ' stub col.' : ''].filter(Boolean).join(' · ')
+      })).sort((a, b) => b.none - a.none || String(a.mark).localeCompare(String(b.mark), undefined, {
+        numeric: true
+      }));
+      return {
+        key: s,
+        label: seqLabelOf(s),
+        needed,
+        daysLeft: ni ? ni.days : null,
+        rows: rowsOut
+      };
+    })
+    // soonest deadline first; anything with no date sinks to the bottom rather than sorting as year 0
+    .sort((a, b) => (a.needed ? 0 : 1) - (b.needed ? 0 : 1) || String(a.needed).localeCompare(String(b.needed)) || String(a.label).localeCompare(String(b.label)));
+    window.printDeliveryList(groups, {
+      project: 'LA Convention Center · A101',
+      scope: (seqFilter === 'all' ? 'All sequences' : (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter)) + (q.trim() ? ` · search "${q.trim()}"` : ''),
+      date: todayISO()
+    });
+  }
+
   // ---- summary view: group the in-scope pins and tally embeds / types / delivered / installed ----
   const groups = React.useMemo(() => {
     const visible = scoped.filter(matchEmbed);
@@ -391,7 +477,7 @@ function Inventory({
     }
   }, /*#__PURE__*/React.createElement(Header, {
     title: "Inventory",
-    sub: `By embed type · ${rows.length} marks${seqFilter !== 'all' ? ' · ' + (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter) : ''}${delivFilter !== 'all' ? ' · ' + DELIV_FILTERS.find(f => f.value === delivFilter).label : ''}`
+    sub: `By embed type · ${rows.length} marks${seqFilter !== 'all' ? ' · ' + (seqMode === 'wcg' ? 'WCG ' : '') + seqLabelOf(seqFilter) : ''}${delivSubLabel}`
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -443,32 +529,52 @@ function Inventory({
     style: {
       display: 'flex',
       alignItems: 'center',
-      gap: 7,
+      gap: 6,
       background: 'rgba(0,0,0,.3)',
-      border: '1px solid ' + (delivFilter !== 'all' ? 'rgba(245,194,75,.55)' : T.color.line),
+      border: '1px solid ' + (!delivAll ? 'rgba(245,194,75,.55)' : T.color.line),
       borderRadius: T.radius.md,
       padding: '0 8px',
       height: 32
     },
-    title: "Filter to a delivery status \u2014 pick Incoming to check off what's coming in"
+    title: "Show or hide each delivery status \u2014 they are independent, so Not delivered + On the way gives you everything still to come"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "inventory",
     size: 14,
     style: {
-      color: delivFilter !== 'all' ? '#F5C24B' : T.color.steel400
+      color: !delivAll ? '#F5C24B' : T.color.steel400
     }
-  }), /*#__PURE__*/React.createElement("select", {
-    value: delivFilter,
-    onChange: e => setDelivFilter(e.target.value),
-    style: {
-      ...SELECT_STYLE,
-      color: delivFilter !== 'all' ? '#fff' : T.color.steel200
-    }
-  }, DELIV_FILTERS.map(f => /*#__PURE__*/React.createElement("option", {
-    key: f.value,
-    value: f.value,
-    style: SELECT_OPT
-  }, f.label)))), /*#__PURE__*/React.createElement("div", {
+  }), DELIV_STATES.map(s => {
+    const on = !!delivShow[s.key];
+    return /*#__PURE__*/React.createElement("span", {
+      key: s.key,
+      onClick: () => toggleDeliv(s.key),
+      title: (on ? 'Hide ' : 'Show ') + s.label,
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        cursor: 'pointer',
+        userSelect: 'none',
+        padding: '3px 8px',
+        borderRadius: T.radius.sm,
+        whiteSpace: 'nowrap',
+        background: on ? 'rgba(255,255,255,.07)' : 'transparent',
+        border: '1px solid ' + (on ? s.color + '88' : 'transparent'),
+        color: on ? '#fff' : T.color.steel500,
+        fontSize: 11.5,
+        textDecoration: on ? 'none' : 'line-through',
+        opacity: on ? 1 : .6
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 7,
+        height: 7,
+        borderRadius: '50%',
+        background: on ? s.color : T.color.steel500,
+        flexShrink: 0
+      }
+    }), s.label);
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -580,6 +686,12 @@ function Inventory({
     icon: "plus",
     onClick: () => setAdding(a => !a)
   }, "Add type"), /*#__PURE__*/React.createElement(Btn, {
+    kind: "ghost",
+    size: "sm",
+    icon: "inventory",
+    onClick: printDelivery,
+    title: "Print an 11x17 sheet of every anchor bolt not yet on site \u2014 grouped by sequence, with tick boxes for the yard"
+  }, "Delivery list 11\xD717"), /*#__PURE__*/React.createElement(Btn, {
     kind: "ghost",
     size: "sm",
     icon: "export",
