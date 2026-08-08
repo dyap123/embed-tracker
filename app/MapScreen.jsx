@@ -56,6 +56,14 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   const [cat, setCat] = React.useState('all');            // knife-plate filter
   const [stub, setStub] = React.useState('all');          // stub-column filter
   const [colorMode, setColorMode] = React.useState('install');   // 'install' | 'delivery' — what the dot color shows
+  /* Delivery layer only: do stub columns count toward a pin's color?
+     ON  (default) — a pin reads the WORST of its anchor bolt and its stub column, so a location
+                     isn't green until both have landed. This is "is this spot ready to build".
+     OFF           — bolts only. A delivered anchor bolt reads green even if its stub column is
+                     still off site, and the stub ■ markers come off the map entirely. This is
+                     "what bolts do I actually have", which is the question the yard asks. */
+  const [scLayer, setScLayer] = React.useState(()=>{ try{ return localStorage.getItem('embedyap_sclayer')!=='0'; }catch(_){ return true; } });
+  React.useEffect(()=>{ try{ localStorage.setItem('embedyap_sclayer', scLayer?'1':'0'); }catch(_){} },[scLayer]);
   // anchor positions are LOCKED by default (per browser) so they can't be dragged accidentally; unlock to reposition
   const [locked, setLocked] = React.useState(()=>{ try{ const v=localStorage.getItem('embedyap_pinlock'); return v==null ? true : v!=='0'; }catch(_){ return true; } });
   React.useEffect(()=>{ try{ localStorage.setItem('embedyap_pinlock', locked?'1':'0'); }catch(_){} },[locked]);
@@ -166,9 +174,12 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
   }
   function roundRectPath(ctx,x,y,w,h,r){ ctx.beginPath();
     ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  // what the delivery layer paints for a pin — bolt+stub together, or bolts only when the SC layer is off
+  function mapDelivery(e){ return scLayer ? siteDeliveryState(e) : deliveryState(e); }
+  const scOn = colorMode!=='delivery' || scLayer;   // stub ■ markers are only suppressed on the delivery layer
   function drawPin(ctx,e,x,y,on,picked){
     let col;
-    if (colorMode==='delivery'){ col = DELIVERY[siteDeliveryState(e)].color; }   // delivery layer: green/yellow/red by on-site status (bolt AND its stub column)
+    if (colorMode==='delivery'){ col = DELIVERY[mapDelivery(e)].color; }   // delivery layer: green/yellow/red by on-site status
     else { const st=pinState(e); col=(e.hasStub && st!=='installed') ? '#FF9650' : STATE[st].color; }
     const r=on?8:6;
     ctx.beginPath(); ctx.arc(x,y, r+(picked?3:(on?3:1.5)), 0, 6.2832);   // glow / selection ring
@@ -178,8 +189,9 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     const mo=r+1.5;
     if(e.hasKnife){ ctx.save(); ctx.translate(x-mo,y-mo); ctx.rotate(0.7853982); ctx.fillStyle=T.color.blue;   // knife plate ◆ top-left
       ctx.fillRect(-3,-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(-3,-3,6,6); ctx.restore(); }
-    // stub ■ bottom-left — orange normally; on the delivery layer it carries the stub column's own on-site status
-    if(e.hasStub){ ctx.fillStyle = colorMode==='delivery' ? DELIVERY[stubDeliveryState(e)].color : '#FF9650';
+    // stub ■ bottom-left — orange normally; on the delivery layer it carries the stub column's own on-site status.
+    // Hidden entirely when the SC layer is switched off, so the map shows nothing but anchor bolts.
+    if(e.hasStub && scOn){ ctx.fillStyle = colorMode==='delivery' ? DELIVERY[stubDeliveryState(e)].color : '#FF9650';
       ctx.fillRect(x-mo-3,y+mo-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(x-mo-3,y+mo-3,6,6); }
     if(e.rfi){ const rc=e.rfi.status==='Open'?T.color.red:e.rfi.status==='Answered'?T.color.yellow:T.color.steel300;   // RFI ● top-right
       ctx.beginPath(); ctx.arc(x+mo,y-mo,3.5,0,6.2832); ctx.fillStyle=rc; ctx.fill(); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.stroke(); }
@@ -374,7 +386,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     (stub==='all' || (stub==='sc' ? e.hasStub : !e.hasStub)) &&
     (!ql || String(e.mark||'').toLowerCase().includes(ql) || String(e.grid||'').toLowerCase().includes(ql) || (e.hasStub && String(e.stubType||'').toLowerCase().includes(ql))) );
   const counts = STATE_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>pinState(e)===k).length; return m; },{});
-  const deliveryCounts = DELIVERY_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>siteDeliveryState(e)===k).length; return m; },{});   // matches the painted pin colors
+  const deliveryCounts = DELIVERY_ORDER.reduce((m,k)=>{ m[k]=embeds.filter(e=>mapDelivery(e)===k).length; return m; },{});   // matches the painted pin colors, SC layer included
   const knifeCount = embeds.filter(e=>e.hasKnife).length;
   const stubCount = embeds.filter(e=>e.hasStub).length;
   const stubWaiting = embeds.filter(e=>e.hasStub && stubDeliveryState(e)!=='delivered').length;   // stub columns still off site
@@ -440,7 +452,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
 
   return (
     <div ref={rootRef} style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', background:T.color.graphite }}>
-      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
+      <MapToolbar {...{filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,scLayer,setScLayer,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid:()=>{ const next=!gridMode; setGridMode(next); onGridDraft(next?buildGridCfg(savedGrid):null); },manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours:showPours,setPours:setShowPours,
         q,setQ,full,toggleFull, poly, finishPoly, cancel:()=>{ setPoly([]); setDrawMode('off'); },
         zoomIn:()=>zoomAt(box.w/2,box.h/2,1.25), zoomOut:()=>zoomAt(box.w/2,box.h/2,0.8), reset:fit, scale:view.s }} />
 
@@ -647,7 +659,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
           </div>
         )}
 
-        {showLegend && <Legend counts={counts} deliveryCounts={deliveryCounts} colorMode={colorMode} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} stubWaiting={stubWaiting} onClose={()=>setShowLegend(false)} />}
+        {showLegend && <Legend counts={counts} deliveryCounts={deliveryCounts} colorMode={colorMode} scLayer={scLayer} total={embeds.length} knifeCount={knifeCount} stubCount={stubCount} stubWaiting={stubWaiting} onClose={()=>setShowLegend(false)} />}
         {!showLegend && <Btn size="sm" kind="solid" icon="layers" onClick={()=>setShowLegend(true)} style={{ position:'absolute', left:14, bottom:14 }}>Legend</Btn>}
 
         <div style={{ position:'absolute', right:14, bottom:14, fontFamily:T.font.mono, fontSize:11, color:T.color.steel400,
@@ -694,7 +706,7 @@ function ConfirmDialog({ message, onYes, onNo }){
 }
 
 /* ---- toolbar ---- */
-function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
+function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColorMode,scLayer,setScLayer,locked,setLocked,tool,setTool,drawMode,setDrawMode,place,setPlace,gridMode,setGridMode,onToggleGrid,manager,isPhone,pourMode,layerVis,setLayerVis,showBackfill,setShowBackfill,pours,setPours,q,setQ,full,toggleFull,poly,finishPoly,cancel,zoomIn,zoomOut,reset,scale }){
   const [fOpen,setFOpen] = React.useState(false);
   const activeFilters = (filter!=='all'?1:0)+(cat!=='all'?1:0)+(stub!=='all'?1:0);
   return (
@@ -741,6 +753,21 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColo
         <Icon name="layers" size={13} style={{ color:colorMode==='delivery'?'#FF9650':T.color.steel400 }} />
         <Segmented size="sm" value={colorMode} onChange={setColorMode} options={[{value:'install',label:'Install'},{value:'delivery',label:'Delivery'}]} />
       </div>
+      {/* Delivery layer only: fold the stub columns into the pin color, or show anchor bolts on their own.
+          Off answers "which bolts are actually here", without a missing stub column painting the pin red. */}
+      {colorMode==='delivery' && (
+        <button onClick={()=>setScLayer(v=>!v)}
+          title={scLayer ? 'Stub columns counted — a pin stays red until its stub column is on site. Click for bolts only.'
+                         : 'Bolts only — pin color ignores stub columns. Click to count them again.'}
+          style={{ display:'flex', alignItems:'center', gap:7, height:30, padding:'0 10px', whiteSpace:'nowrap',
+            background: scLayer ? 'rgba(255,150,80,.14)' : 'rgba(0,0,0,.3)',
+            border:'1px solid '+(scLayer ? 'rgba(255,150,80,.5)' : T.color.line), borderRadius:T.radius.md }}>
+          <span style={{ width:9, height:9, display:'inline-block', flex:'0 0 auto',
+            background: scLayer ? '#FF9650' : 'transparent', border:'1.5px solid '+(scLayer?'#FF9650':T.color.steel400) }} />
+          <span style={{ fontFamily:T.font.mono, fontSize:11, letterSpacing:'.04em',
+            color: scLayer ? '#FF9650' : T.color.steel300 }}>{scLayer ? 'SC ON' : 'BOLTS ONLY'}</span>
+        </button>
+      )}
       <div style={{ display:'flex', alignItems:'center', gap:7, background:'rgba(0,0,0,.3)', border:'1px solid '+T.color.line, borderRadius:T.radius.md, padding:'0 10px', height:30 }}>
         <Icon name="search" size={14} style={{ color:T.color.steel400 }} />
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Find mark / stub type…"
@@ -788,13 +815,14 @@ function MapToolbar({ filter,setFilter,cat,setCat,stub,setStub,colorMode,setColo
 const zbtn = { width:30, height:28, display:'grid', placeItems:'center', borderRadius:6, color:T.color.steel200 };
 
 /* ---- legend ---- */
-function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCount, stubCount, stubWaiting=0, onClose }){
+function Legend({ counts, deliveryCounts={}, colorMode='install', scLayer=true, total, knifeCount, stubCount, stubWaiting=0, onClose }){
   const delivery = colorMode==='delivery';
+  const boltsOnly = delivery && !scLayer;   // SC layer off — stub ■ are off the map, so drop them from the legend too
   return (
     <div data-ui style={{ position:'absolute', left:14, bottom:14, background:steelPlate('#161D29','#0F141C'),
       border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:'12px 14px', boxShadow:T.shadow.card, minWidth:174 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:9 }}>
-        <Kicker>{delivery?'Delivery':'Legend'}</Kicker>
+        <Kicker>{delivery?(boltsOnly?'Delivery · bolts':'Delivery'):'Legend'}</Kicker>
         <button onClick={onClose} style={{ color:T.color.steel400 }}><Icon name="close" size={13}/></button>
       </div>
       <div style={{ display:'grid', gap:7 }}>
@@ -818,13 +846,22 @@ function Legend({ counts, deliveryCounts={}, colorMode='install', total, knifeCo
           <span style={{ color:T.color.offwhite, flex:1 }}>Knife plate</span>
           <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{knifeCount}</span>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
-          <span style={{ width:9, height:9, background:'#FF9650', display:'inline-block', marginLeft:1 }} />
-          <span style={{ color:T.color.offwhite, flex:1 }}>Stub column</span>
-          <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{stubCount}</span>
-        </div>
+        {!boltsOnly && (
+          <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
+            <span style={{ width:9, height:9, background:'#FF9650', display:'inline-block', marginLeft:1 }} />
+            <span style={{ color:T.color.offwhite, flex:1 }}>Stub column</span>
+            <span style={{ fontFamily:T.font.mono, fontSize:12, color:T.color.steel300 }}>{stubCount}</span>
+          </div>
+        )}
+        {/* SC layer off — say so, and keep the number visible so it is clear what is being ignored */}
+        {boltsOnly && (
+          <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:12.5, marginTop:1 }}>
+            <span style={{ width:9, height:9, border:'1.5px solid '+T.color.steel400, display:'inline-block', marginLeft:1 }} />
+            <span style={{ color:T.color.steel300, flex:1, fontStyle:'italic' }}>{stubCount} SC hidden</span>
+          </div>
+        )}
         {/* on the delivery layer a pin reads red while its stub column is off site — call that out */}
-        {delivery && stubCount>0 && (
+        {delivery && !boltsOnly && stubCount>0 && (
           <div style={{ display:'flex', alignItems:'center', gap:9, fontSize:13 }}>
             <span style={{ width:9, height:9, background:T.color.red, display:'inline-block', marginLeft:1 }} />
             <span style={{ color:T.color.offwhite, flex:1 }}>SC not on site</span>
