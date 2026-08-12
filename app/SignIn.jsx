@@ -41,7 +41,7 @@ function SignIn({ onSignIn, onAddCrew, crew, embeds=[] }){
     { dot:T.color.green, label:`${k.pct}% installed` },
     { dot:T.color.blue,  label:`${k.pinned} pinned` },
     { dot:T.color.pink,  label:`${nextCount} next pour` },
-    { dot:T.color.red,   label:`${k.openRFI} open RFIs` },
+    { dot:T.color.amberHot, label:`${k.noted} notes` },
   ];
 
   return (

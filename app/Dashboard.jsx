@@ -48,7 +48,7 @@ function Dashboard({ embeds, zones=[], isPhone }){
           <Kpi label="On the way" value={dCounts.transit} sub="in transit" accent={T.color.yellow} />
           <Kpi label="Installed" value={k.installed} sub="cast & set" accent={T.color.green} />
           <Kpi label="Complete" value={k.pct+'%'} sub="of pinned" accent={T.color.amber} ring={k.pct} />
-          <Kpi label="Open RFIs" value={k.openRFI} sub="needs answer" accent={T.color.red} />
+          <Kpi label="Notes" value={k.noted} sub="embeds flagged" accent={T.color.amberHot} />
         </div>
 
         {/* by area + by sequence */}

@@ -156,8 +156,8 @@ function App() {
         window.fb.inc('users/' + u.id + '/points', p.installed ? 10 : -10);
         window.fb.inc('users/' + u.id + '/installs', p.installed ? 1 : -1);
       }
-    } else if ('rfi' in p) {
-      kind = 'rfi';
+    } else if ('note' in p) {
+      kind = 'note';
     } else if ('delivery' in p) {
       kind = 'delivery';
       const u = userRef.current;

@@ -83,7 +83,7 @@ function App(){
       if (p.installed){ if(!p.installedAt) p.installedAt = today(); p.installedBy = u? u.name : null; }
       else { p.installedAt = null; p.installedBy = null; }
       if (u&&u.id){ window.fb.inc('users/'+u.id+'/points', p.installed?10:-10); window.fb.inc('users/'+u.id+'/installs', p.installed?1:-1); }
-    } else if ('rfi' in p){ kind = 'rfi'; }
+    } else if ('note' in p){ kind = 'note'; }
     else if ('delivery' in p){ kind = 'delivery'; const u=userRef.current;
       if (p.delivery==='delivered'){ if(!p.deliveredAt) p.deliveredAt = today(); p.deliveredBy = u? u.name : null; }
       else { p.deliveredAt = null; p.deliveredBy = null; } }   // on the way / not delivered clears the received stamp

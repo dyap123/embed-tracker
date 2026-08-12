@@ -97,8 +97,8 @@ function SignIn({
     dot: T.color.pink,
     label: `${nextCount} next pour`
   }, {
-    dot: T.color.red,
-    label: `${k.openRFI} open RFIs`
+    dot: T.color.amberHot,
+    label: `${k.noted} notes`
   }];
   return /*#__PURE__*/React.createElement("div", {
     style: {

@@ -165,10 +165,10 @@ function Dashboard({
     accent: T.color.amber,
     ring: k.pct
   }), /*#__PURE__*/React.createElement(Kpi, {
-    label: "Open RFIs",
-    value: k.openRFI,
-    sub: "needs answer",
-    accent: T.color.red
+    label: "Notes",
+    value: k.noted,
+    sub: "embeds flagged",
+    accent: T.color.amberHot
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',

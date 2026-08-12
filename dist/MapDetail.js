@@ -1,4 +1,4 @@
-/* EmbedYap — pin detail panel (sequence/area/install + RFI) and zone editor */
+/* EmbedYap — pin detail panel (sequence/area/install + note) and zone editor */
 
 function PinDetail({
   embed,
@@ -25,46 +25,14 @@ function PinDetail({
       setTimeout(() => setCelebrate(false), 900);
     }
   }
-  function setRfiField(patch) {
-    const base = embed.rfi || {
-      number: `RFI-${300 + Math.floor(Math.random() * 99)}`,
-      status: 'Open',
-      description: '',
-      links: []
-    };
+  // Note — one plain string on the pin. Saved on blur, not per keystroke, so a
+  // re-render can't steal focus mid-sentence. Clearing it writes '' (never a
+  // nested object: RTDB drops empty children, which is what broke the old RFI).
+  function saveNote(text) {
+    const v = String(text || '').trim();
+    if (v === (embed.note || '')) return;
     updateEmbed(embed.id, {
-      rfi: {
-        ...base,
-        ...patch
-      }
-    });
-  }
-  function addLink() {
-    const base = embed.rfi || {
-      number: `RFI-${300 + Math.floor(Math.random() * 99)}`,
-      status: 'Open',
-      description: '',
-      links: []
-    };
-    setRfiField({
-      links: [...base.links, {
-        label: 'New link',
-        url: 'https://'
-      }]
-    });
-  }
-  function editLink(i, patch) {
-    const links = embed.rfi.links.map((l, k) => k === i ? {
-      ...l,
-      ...patch
-    } : l);
-    setRfiField({
-      links
-    });
-  }
-  function rmLink(i) {
-    setRfiField({
-      links: embed.rfi.links.filter((_, k) => k !== i)
+      note: v
     });
   }
   const wrap = isPhone ? {
@@ -500,10 +468,10 @@ function PinDetail({
       gap: 8
     }
   }, /*#__PURE__*/React.createElement(Icon, {
-    name: "rfi",
+    name: "note",
     size: 16,
     style: {
-      color: T.color.steel300
+      color: embed.note ? T.color.amberHot : T.color.steel300
     }
   }), /*#__PURE__*/React.createElement("span", {
     style: {
@@ -513,131 +481,45 @@ function PinDetail({
       textTransform: 'uppercase',
       letterSpacing: '.04em'
     }
-  }, "RFI")), !embed.rfi && /*#__PURE__*/React.createElement(Btn, {
+  }, "Note")), embed.note && /*#__PURE__*/React.createElement(Btn, {
     size: "sm",
     kind: "ghost",
-    icon: "plus",
-    onClick: () => setRfiField({})
-  }, "Add RFI")), embed.rfi ? /*#__PURE__*/React.createElement("div", {
+    icon: "trash",
+    onClick: () => updateEmbed(embed.id, {
+      note: ''
+    })
+  }, "Clear")), /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'rgba(0,0,0,.22)',
-      border: '1px solid ' + T.color.line,
+      border: '1px solid ' + (embed.note ? 'rgba(166,160,255,.45)' : T.color.line),
       borderRadius: T.radius.lg,
-      padding: 14,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 12
+      padding: 12
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      justifyContent: 'space-between'
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    value: embed.rfi.number,
-    onChange: e => setRfiField({
-      number: e.target.value
-    }),
-    style: {
-      ...inputStyle,
-      width: 120,
-      fontFamily: T.font.mono,
-      fontSize: 13,
-      padding: '7px 10px'
-    }
-  }), /*#__PURE__*/React.createElement(Segmented, {
-    size: "sm",
-    value: embed.rfi.status,
-    onChange: v => setRfiField({
-      status: v
-    }),
-    options: [{
-      value: 'Open',
-      label: 'Open'
-    }, {
-      value: 'Answered',
-      label: 'Ans'
-    }, {
-      value: 'Closed',
-      label: 'Closed'
-    }]
-  })), /*#__PURE__*/React.createElement("textarea", {
-    value: embed.rfi.description,
-    onChange: e => setRfiField({
-      description: e.target.value
-    }),
+  }, /*#__PURE__*/React.createElement("textarea", {
+    key: 'note:' + (embed.note || ''),
+    defaultValue: embed.note || '',
     rows: 3,
-    placeholder: "Describe the request\u2026",
+    placeholder: "Anything the crew should know \u2014 conflict, hold, field fix\u2026",
+    onBlur: e => saveNote(e.target.value),
+    onKeyDown: e => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
+    },
     style: {
       ...inputStyle,
       resize: 'vertical',
       fontSize: 13,
-      lineHeight: 1.5
+      lineHeight: 1.5,
+      width: '100%'
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 7
-    }
-  }, embed.rfi.links.map((l, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 7
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "link",
-    size: 14,
-    style: {
-      color: T.color.blue,
-      flex: '0 0 auto'
-    }
-  }), /*#__PURE__*/React.createElement("input", {
-    value: l.label,
-    onChange: e => editLink(i, {
-      label: e.target.value
-    }),
-    style: {
-      ...inputStyle,
-      padding: '6px 9px',
-      fontSize: 12.5,
-      flex: '1 1 0'
-    }
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => rmLink(i),
-    style: {
+      fontSize: 11,
       color: T.color.steel400,
-      padding: 5
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "trash",
-    size: 14
-  })))), /*#__PURE__*/React.createElement("button", {
-    onClick: addLink,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 7,
-      color: T.color.blue,
-      fontSize: 12.5,
+      marginTop: 7,
       fontFamily: T.font.mono,
-      padding: '5px 0',
       letterSpacing: '.04em'
     }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "plus",
-    size: 13
-  }), " ADD DRIVE / URL LINK"))) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: T.color.steel400,
-      padding: '10px 0'
-    }
-  }, "No open requests on this embed."))));
+  }, embed.note ? 'SAVED — CLICK OUT TO UPDATE' : 'CLICK OUT TO SAVE')))));
 }
 function Celebrate() {
   const sparks = Array.from({

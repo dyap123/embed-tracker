@@ -200,19 +200,19 @@ function kpis(embeds) {
   const pinned = embeds.length;
   const installed = embeds.filter(e => e.installed).length;
   const expected = pinned; // real takeoff: every embed is pinned
-  const openRFI = embeds.filter(e => e.rfi && e.rfi.status === 'Open').length;
+  const noted = embeds.filter(e => e.note).length;
   return {
     expected,
     pinned,
     installed,
     pct: pinned ? Math.round(installed / pinned * 100) : 0,
-    openRFI
+    noted
   };
 }
 
 /* ---- Firebase pin → design embed shape (real extracted data) ----------
    Firebase `pins` carry {embedId(mark), x,y(0..1), sequence, area, installed,
-   knifePlate, installedAt, rfi}. Map each onto the editable blueprint grid
+   knifePlate, installedAt, note}. Map each onto the editable blueprint grid
    (best-effort by relative position). */
 function gridIdx(p) {
   const C = gridCols(),
@@ -270,7 +270,7 @@ function pinToEmbed(key, p) {
     nextPour: !!p.nextPour,
     installedAt: at,
     installedBy: p.installedBy || null,
-    rfi: p.rfi || null,
+    note: p.note || '',
     delivery: p.delivery || 'none',
     // delivery-to-site status (see deliveryState)
     deliveredAt: dat,
@@ -304,7 +304,7 @@ window.shortDate = shortDate;
 const REMARKS = {
   install: ['Steel set. 🔩', 'Locked in — clean work.', "That one's in the concrete for good.", 'Bolt down, boss.', 'Another one buried — keep stacking.', 'Set & forget. Nice.'],
   uninstall: ['Backed it out — sort it and re-set.'],
-  rfi: ['RFI flagged — good catch.', 'Question logged. Saves a callback.', 'Sharp eye — RFI on the board.'],
+  note: ['Note saved — good catch.', 'Logged it for the crew.', 'Sharp eye — note on the board.'],
   delivery: ['Delivery logged. 🚚', 'Steel tracked to site.', 'Updated the delivery board.', 'Material status set.'],
   zone: ["Zone tagged — crew's aligned.", 'Bulk move. Efficient.'],
   seqdone: ['Pour wrapped — green across the board! 🟢', 'Sequence complete. On to the next.'],

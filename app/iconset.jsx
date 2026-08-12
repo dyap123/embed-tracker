@@ -33,7 +33,7 @@ const ICONS = {
   arrowRight: <path d="M5 12h14M13 6l6 6-6 6" />,
   lock: <><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>,
   unlock: <><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 7.5-1.5" /></>,
-  rfi: <><path d="M5 4h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-4 4V5a1 1 0 0 1 1-1Z" /><path d="M12 8.5a1.5 1.5 0 1 1 1.5 1.5v1M12.5 13.5h.01" /></>,
+  note: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h3.5" /></>,
   bolt: <><path d="M12 3v7M12 14v7" /><rect x="9" y="9" width="6" height="6" rx="1" /><path d="M9 11H7m10 0h-2M9 13H7m10 0h-2" /></>,
   layers: <><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 13 9 5 9-5" /></>,
   filter: <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />,

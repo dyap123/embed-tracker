@@ -1,4 +1,4 @@
-/* EmbedYap — pin detail panel (sequence/area/install + RFI) and zone editor */
+/* EmbedYap — pin detail panel (sequence/area/install + note) and zone editor */
 
 function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
   const [celebrate, setCelebrate] = React.useState(false);
@@ -13,16 +13,14 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
     updateEmbed(embed.id, { installed: now });   // App stamps installedAt + credits the user
     if (now){ setCelebrate(true); setTimeout(()=>setCelebrate(false), 900); }
   }
-  function setRfiField(patch){
-    const base = embed.rfi || { number:`RFI-${300+Math.floor(Math.random()*99)}`, status:'Open', description:'', links:[] };
-    updateEmbed(embed.id, { rfi: { ...base, ...patch } });
+  // Note — one plain string on the pin. Saved on blur, not per keystroke, so a
+  // re-render can't steal focus mid-sentence. Clearing it writes '' (never a
+  // nested object: RTDB drops empty children, which is what broke the old RFI).
+  function saveNote(text){
+    const v = String(text||'').trim();
+    if (v === (embed.note||'')) return;
+    updateEmbed(embed.id, { note: v });
   }
-  function addLink(){
-    const base = embed.rfi || { number:`RFI-${300+Math.floor(Math.random()*99)}`, status:'Open', description:'', links:[] };
-    setRfiField({ links:[...base.links, { label:'New link', url:'https://' }] });
-  }
-  function editLink(i, patch){ const links=embed.rfi.links.map((l,k)=>k===i?{...l,...patch}:l); setRfiField({ links }); }
-  function rmLink(i){ setRfiField({ links: embed.rfi.links.filter((_,k)=>k!==i) }); }
 
   const wrap = isPhone ? {
     position:'absolute', left:0, right:0, bottom:0, maxHeight:'74%', borderRadius:'18px 18px 0 0',
@@ -165,44 +163,25 @@ function PinDetail({ embed, onClose, updateEmbed, isPhone, manager, onDelete }){
           <Toggle on={embed.installed} onChange={toggleInstall} />
         </div>
 
-        {/* RFI section */}
+        {/* Note — free text on this embed */}
         <div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <Icon name="rfi" size={16} style={{ color:T.color.steel300 }} />
-              <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.04em' }}>RFI</span>
+              <Icon name="note" size={16} style={{ color:embed.note?T.color.amberHot:T.color.steel300 }} />
+              <span style={{ fontFamily:T.font.display, fontWeight:700, fontSize:16, textTransform:'uppercase', letterSpacing:'.04em' }}>Note</span>
             </div>
-            {!embed.rfi && <Btn size="sm" kind="ghost" icon="plus" onClick={()=>setRfiField({})}>Add RFI</Btn>}
+            {embed.note && <Btn size="sm" kind="ghost" icon="trash" onClick={()=>updateEmbed(embed.id,{ note:'' })}>Clear</Btn>}
           </div>
-
-          {embed.rfi ? (
-            <div style={{ background:'rgba(0,0,0,.22)', border:'1px solid '+T.color.line, borderRadius:T.radius.lg, padding:14, display:'flex', flexDirection:'column', gap:12 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'space-between' }}>
-                <input value={embed.rfi.number} onChange={e=>setRfiField({ number:e.target.value })}
-                  style={{ ...inputStyle, width:120, fontFamily:T.font.mono, fontSize:13, padding:'7px 10px' }} />
-                <Segmented size="sm" value={embed.rfi.status} onChange={v=>setRfiField({ status:v })}
-                  options={[{value:'Open',label:'Open'},{value:'Answered',label:'Ans'},{value:'Closed',label:'Closed'}]} />
-              </div>
-              <textarea value={embed.rfi.description} onChange={e=>setRfiField({ description:e.target.value })}
-                rows={3} placeholder="Describe the request…"
-                style={{ ...inputStyle, resize:'vertical', fontSize:13, lineHeight:1.5 }} />
-              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-                {embed.rfi.links.map((l,i)=>(
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:7 }}>
-                    <Icon name="link" size={14} style={{ color:T.color.blue, flex:'0 0 auto' }} />
-                    <input value={l.label} onChange={e=>editLink(i,{ label:e.target.value })}
-                      style={{ ...inputStyle, padding:'6px 9px', fontSize:12.5, flex:'1 1 0' }} />
-                    <button onClick={()=>rmLink(i)} style={{ color:T.color.steel400, padding:5 }}><Icon name="trash" size={14}/></button>
-                  </div>
-                ))}
-                <button onClick={addLink} style={{ display:'flex', alignItems:'center', gap:7, color:T.color.blue,
-                  fontSize:12.5, fontFamily:T.font.mono, padding:'5px 0', letterSpacing:'.04em' }}>
-                  <Icon name="plus" size={13}/> ADD DRIVE / URL LINK</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize:13, color:T.color.steel400, padding:'10px 0' }}>No open requests on this embed.</div>
-          )}
+          <div style={{ background:'rgba(0,0,0,.22)', border:'1px solid '+(embed.note?'rgba(166,160,255,.45)':T.color.line),
+            borderRadius:T.radius.lg, padding:12 }}>
+            <textarea key={'note:'+(embed.note||'')} defaultValue={embed.note||''} rows={3}
+              placeholder="Anything the crew should know — conflict, hold, field fix…"
+              onBlur={e=>saveNote(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) e.currentTarget.blur(); }}
+              style={{ ...inputStyle, resize:'vertical', fontSize:13, lineHeight:1.5, width:'100%' }} />
+            <div style={{ fontSize:11, color:T.color.steel400, marginTop:7, fontFamily:T.font.mono, letterSpacing:'.04em' }}>
+              {embed.note ? 'SAVED — CLICK OUT TO UPDATE' : 'CLICK OUT TO SAVE'}</div>
+          </div>
         </div>
       </div>
     </div>

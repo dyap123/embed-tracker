@@ -1,5 +1,5 @@
 /* EmbedYap — Map screen (centerpiece): pan/zoom plan, ~300 anchor-bolt pins,
-   marquee multi-select, pin detail + RFI, manager markup tools (rect + polygon,
+   marquee multi-select, pin detail + note, manager markup tools (rect + polygon,
    reshape, copy/paste/delete/undo), interactive embed placement, grid editor. */
 
 const STATE_ORDER = ['installed', 'next', 'todo']; // knife plate is an attribute, not a status
@@ -501,11 +501,10 @@ function MapScreen({
       ctx.strokeStyle = '#0C111A';
       ctx.strokeRect(x - mo - 3, y + mo - 3, 6, 6);
     }
-    if (e.rfi) {
-      const rc = e.rfi.status === 'Open' ? T.color.red : e.rfi.status === 'Answered' ? T.color.yellow : T.color.steel300; // RFI ● top-right
+    if (e.note) {
       ctx.beginPath();
       ctx.arc(x + mo, y - mo, 3.5, 0, 6.2832);
-      ctx.fillStyle = rc;
+      ctx.fillStyle = T.color.amberHot; // note ● top-right
       ctx.fill();
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = '#0C111A';
@@ -1079,7 +1078,7 @@ function MapScreen({
       stubColumn: !!e.hasStub,
       installed: !!e.installed,
       installedAt: e.installedAt || null,
-      rfi: e.rfi || null
+      note: e.note || ''
     };
   }
   function deletePins(ids) {

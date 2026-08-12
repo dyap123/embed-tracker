@@ -1,5 +1,5 @@
 /* EmbedYap — Map screen (centerpiece): pan/zoom plan, ~300 anchor-bolt pins,
-   marquee multi-select, pin detail + RFI, manager markup tools (rect + polygon,
+   marquee multi-select, pin detail + note, manager markup tools (rect + polygon,
    reshape, copy/paste/delete/undo), interactive embed placement, grid editor. */
 
 const STATE_ORDER = ['installed','next','todo'];   // knife plate is an attribute, not a status
@@ -193,8 +193,8 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     // Hidden entirely when the SC layer is switched off, so the map shows nothing but anchor bolts.
     if(e.hasStub && scOn){ ctx.fillStyle = colorMode==='delivery' ? DELIVERY[stubDeliveryState(e)].color : '#FF9650';
       ctx.fillRect(x-mo-3,y+mo-3,6,6); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.strokeRect(x-mo-3,y+mo-3,6,6); }
-    if(e.rfi){ const rc=e.rfi.status==='Open'?T.color.red:e.rfi.status==='Answered'?T.color.yellow:T.color.steel300;   // RFI ● top-right
-      ctx.beginPath(); ctx.arc(x+mo,y-mo,3.5,0,6.2832); ctx.fillStyle=rc; ctx.fill(); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.stroke(); }
+    if(e.note){ ctx.beginPath(); ctx.arc(x+mo,y-mo,3.5,0,6.2832); ctx.fillStyle=T.color.amberHot;   // note ● top-right
+      ctx.fill(); ctx.lineWidth=1.5; ctx.strokeStyle='#0C111A'; ctx.stroke(); }
     if(labelsOn||on){ const txt=String((labelsOn?e.mark:e.grid)||''); if(txt){
       ctx.font="500 9.5px 'JetBrains Mono', ui-monospace, monospace";
       const tw=ctx.measureText(txt).width, pad=4, h=13, ly=y+r+3.5;
@@ -338,7 +338,7 @@ function MapScreen({ embeds, updateEmbed, bulkUpdate, user, isPhone, zones=[], o
     }
   }
 
-  function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, stubColumn:!!e.hasStub, installed:!!e.installed, installedAt:e.installedAt||null, rfi:e.rfi||null }; }
+  function rawPin(e){ return { embedId:e.mark, x:e.nx, y:e.ny, exact:true, sequence:e.sequence, area:e.area, knifePlate:!!e.hasKnife, stubColumn:!!e.hasStub, installed:!!e.installed, installedAt:e.installedAt||null, note:e.note||'' }; }
   function deletePins(ids){ ids.forEach(id=>{ const e=embeds.find(x=>x.id===id); if(e) pushUndo({ type:'pinRestore', id, data:rawPin(e) }); onRemovePin(id); }); setSelPins([]); setSelId(null); }
   function requestDeletePins(ids){ if(!ids.length) return;
     if(ids.length>1) setConfirm({ message:`Delete ${ids.length} embeds? You can undo with ⌘Z.`, onYes:()=>{ deletePins(ids); setConfirm(null); } });

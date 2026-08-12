@@ -86,7 +86,7 @@
         Delivery:deliveryOf(e), Received:(window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', 'Received By':e.deliveredBy||'',
         'SC Delivery':stubDeliveryOf(e), 'SC Received':e.hasStub?(e.stubDeliveredAt||''):'',
         Installed:e.installed?'Yes':'No', 'Installed On':e.installedAt||'', 'Installed By':e.installedBy||'',
-        RFI:e.rfi?e.rfi.number:'', 'RFI Status':e.rfi?e.rfi.status:'',
+        Note:e.note||'',
       }));
   }
   // delivery COUNT by sequence + delivered + on-the-way + not-delivered + %
@@ -119,13 +119,13 @@
   }
   function summary(embeds){
     const pinned=embeds.length, inst=embeds.filter(e=>e.installed).length;
-    const open=embeds.filter(e=>e.rfi&&e.rfi.status==='Open').length;
+    const noted=embeds.filter(e=>e.note).length;
     return [
       { Metric:'Placed (on plan)', Value:pinned },
       { Metric:'Installed (cast & set)', Value:inst },
       { Metric:'Remaining', Value:pinned-inst },
       { Metric:'Complete %', Value:(pinned?Math.round(inst/pinned*100):0)+'%' },
-      { Metric:'Open RFIs', Value:open },
+      { Metric:'Notes', Value:noted },
     ];
   }
 
@@ -154,10 +154,10 @@
       const wb=XLSX.utils.book_new();
       const AREAS=window.AREAS||['A','B','C','D']; const SL=window.seqLabel||(s=>'Seq '+s);
       const dS=window.deliveryState||(e=>e.installed?'delivered':(e.delivery||'none'));
-      const tot=embeds.length, instN=embeds.filter(e=>e.installed).length, delivN=embeds.filter(e=>dS(e)==='delivered').length, openR=embeds.filter(e=>e.rfi&&e.rfi.status==='Open').length;
+      const tot=embeds.length, instN=embeds.filter(e=>e.installed).length, delivN=embeds.filter(e=>dS(e)==='delivered').length, notedN=embeds.filter(e=>e.note).length;
 
       // Summary (formula-driven Remaining / % Complete)
-      const sumAOA=[['Metric','Value'],['Total embeds',tot],['Delivered',delivN],['Installed',instN],['Remaining',''],['% Complete',''],['Open RFIs',openR]];
+      const sumAOA=[['Metric','Value'],['Total embeds',tot],['Delivered',delivN],['Installed',instN],['Remaining',''],['% Complete',''],['Notes',notedN]];
       XLSX.utils.book_append_sheet(wb, styledWS(sumAOA,{ widths:[20,14], formulas:[{r:4,c:1,f:'B2-B4'},{r:5,c:1,f:'B4/B2',z:'0%'}] }), 'Summary');
 
       // Install by Sequence
@@ -184,12 +184,12 @@
       XLSX.utils.book_append_sheet(wb, styledWS(areaAOA,{ widths:[10,12,12,12,14], formulas:afm }), 'Area Rollup');
 
       // Detailed Tracker (per pin, TRUE/FALSE)
-      const detHead=['Mark','Type','Area','Sequence','Delivered','Installed','Status','Received','Installed On','Installed By','RFI'];
+      const detHead=['Mark','Type','Area','Sequence','Delivered','Installed','Status','Received','Installed On','Installed By','Note'];
       const detBody=embeds.slice().sort((a,b)=>String(a.mark).localeCompare(String(b.mark),undefined,{numeric:true})).map(e=>[
         e.mark||'', e.typeLabel||'Anchor rod', e.area||'', SL(e.sequence||''), dS(e)==='delivered', !!e.installed,
         e.installed?'Installed':(dS(e)==='delivered'?'Delivered':dS(e)==='transit'?'On the way':'Not delivered'),
-        (window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', e.installedAt||'', e.installedBy||'', e.rfi?e.rfi.number:'' ]);
-      XLSX.utils.book_append_sheet(wb, styledWS([detHead,...detBody],{ widths:[10,15,7,12,11,11,13,13,13,16,9] }), 'Detailed Tracker');
+        (window.receivedAt?window.receivedAt(e):e.deliveredAt)||'', e.installedAt||'', e.installedBy||'', e.note||'' ]);
+      XLSX.utils.book_append_sheet(wb, styledWS([detHead,...detBody],{ widths:[10,15,7,12,11,11,13,13,13,16,34] }), 'Detailed Tracker');
 
       // Install Log
       const ilBody=embeds.filter(e=>e.installed).sort((a,b)=>(a.installedAt||'').localeCompare(b.installedAt||'')).map(e=>[e.area||'',e.mark||'',e.grid||'',true,e.installedAt||'',e.installedBy||'']);

@@ -211,10 +211,14 @@ const ICONS = {
   }), /*#__PURE__*/React.createElement("path", {
     d: "M8 11V8a4 4 0 0 1 7.5-1.5"
   })),
-  rfi: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
-    d: "M5 4h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-4 4V5a1 1 0 0 1 1-1Z"
+  note: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "5",
+    y: "3",
+    width: "14",
+    height: "18",
+    rx: "2"
   }), /*#__PURE__*/React.createElement("path", {
-    d: "M12 8.5a1.5 1.5 0 1 1 1.5 1.5v1M12.5 13.5h.01"
+    d: "M9 8h6M9 12h6M9 16h3.5"
   })),
   bolt: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
     d: "M12 3v7M12 14v7"
