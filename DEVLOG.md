@@ -1,5 +1,59 @@
 # EmbedYap — DEVLOG
 
+## 2026-08-12 — RFI removed, replaced by a note (280A was unclickable)
+
+**The bug:** adding an RFI to **280A** made the pin impossible to open, and the
+crash took the panel down with it.
+
+`Add RFI` seeded `{ number, status, description, links: [] }`. Firebase RTDB does
+not store empty children — an empty array is equivalent to null, so the key was
+dropped on write. It came back as `undefined`, and the panel's
+
+```js
+{embed.rfi.links.map((l,i)=> ... )}
+```
+
+threw `TypeError: Cannot read properties of undefined (reading 'map')` on every
+render of that pin. Only one pin in the whole job (`Pz68e30t` / 280A) ever had an
+RFI, which is why nothing else looked broken.
+
+**The lesson:** never seed an empty array or empty object into RTDB and then read
+it back as a structure. Round-trip it or guard the read. A flat scalar has nothing
+to drop.
+
+### What replaced it — Note
+One plain string on the pin: `pins/<id>/note`. No nesting, no arrays.
+
+- **Saved on blur**, not per keystroke — a re-render can't steal focus mid-sentence
+  (same reason the stub-type input works this way; see the fcf5678 / 914e762 fixes).
+- The textarea is **keyed on the stored value** (`key={'note:'+(embed.note||'')}`)
+  so an external change — most importantly **Clear** — remounts it. Without the key
+  it kept showing stale text that would get re-saved on the next blur.
+- ⌘/Ctrl+Enter blurs to save.
+
+Carried through everywhere RFI used to appear:
+
+| Surface | Was | Now |
+|---|---|---|
+| Map pin, top-right ● | RFI status color | periwinkle dot when a note exists |
+| Dashboard KPI | Open RFIs / needs answer | Notes / embeds flagged |
+| Badge-in ticker | `N open RFIs` | `N notes` |
+| CSV + Excel | `RFI`, `RFI Status` | `Note` |
+| Summary sheet | Open RFIs | Notes |
+| `kpis()` | `openRFI` | `noted` |
+| Icon | `rfi` (speech bubble) | `note` (lined page) |
+
+### 280A restored
+Deleted `pins/Pz68e30t/rfi` only. Everything else survived untouched — position
+(0.6696, 0.7626), knife plate, delivery `transit`, Sequence 2, Area A, `A·P2`.
+Full 378-pin snapshot at `~/openyap-backups/embed-tracker-pins-2026-08-12.json`.
+
+Verified end to end against the real database: opened 280A (the click that used to
+crash), wrote a note, confirmed a flat string landed in RTDB, cleared it, no console
+errors. Test data removed — 0 pins carry an rfi, 0 carry a note.
+
+Shipped `8fb730c`, live.
+
 ## 2026-07-28 — Stub-column delivery tracked apart from the anchor bolt
 
 **The bug:** delivery was a single per-pin status, so a pin whose anchor bolt was
